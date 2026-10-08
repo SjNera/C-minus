@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cminus"
+version = "0.1.0"
+description = "C-Minus: a C-subset to Python source-to-source compiler"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []                      # core compiler has no third-party dependencies
+
+[project.optional-dependencies]
+format = ["black>=24.0"]
+dev    = ["black>=24.0", "pytest>=8.0"]
+
+[project.scripts]
+cminus       = "cminus.main:main"
+cminus-check = "cminus.extras.gcc_equivalence:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
