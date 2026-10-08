@@ -143,7 +143,6 @@ class CodeGenerator:
             else [self.visit(node.body)]
         )
         
-        # Add termination condition at the end of loop body
         cond_check = ast.If(
             test=ast.UnaryOp(op=ast.Not(), operand=self.visit(node.condition)),
             body=[ast.Break()],
@@ -157,7 +156,6 @@ class CodeGenerator:
         """Translates C-style `for(init; cond; step)` into Python initialization + while loop."""
         statements = []
 
-        # 1. Loop Initialization
         if node.init:
             py_init = self.visit(node.init)
             if isinstance(py_init, list):
@@ -165,17 +163,14 @@ class CodeGenerator:
             else:
                 statements.append(py_init)
 
-        # 2. Condition check
         test = self.visit(node.condition) if node.condition else ast.Constant(value=True)
 
-        # 3. Body
         body = (
             self.visit_Block_body(node.body)
             if isinstance(node.body, Block)
             else [self.visit(node.body)]
         )
 
-        # 4. Step expression executed at the end of body
         if node.step:
             body.append(ast.Expr(value=self.visit(node.step)))
 
