@@ -1,9 +1,15 @@
+from importlib.metadata import version
+
 import cminus
 from cminus.ast_nodes import BinaryOp, IntLiteral
 
 
 def test_package_imports():
     assert cminus.__version__
+
+
+def test_package_version_matches_installed_metadata():
+    assert cminus.__version__ == version("cminus")
 
 
 def test_ast_nodes_construct():

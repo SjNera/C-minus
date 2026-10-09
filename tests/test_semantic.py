@@ -886,3 +886,171 @@ def test_analyser_reuse_resets_state_after_success_and_error() -> None:
     assert first.lookup_function("old") is not None
     assert first.all_scopes[1].symbols["x"].type_name == "int"
     assert second.all_scopes[-1].name == "main/block1"
+
+
+def test_function_bodies_do_not_share_local_bindings() -> None:
+    helper = function("helper", [VarDecl("int", "private")])
+    tree = Program(
+        [
+            helper,
+            function("main", [Return(Identifier("private", line=9, column=12))]),
+        ]
+    )
+    assert_error(tree, "variable 'private' is used before it is declared", 9, 12)
+
+
+def test_sibling_blocks_do_not_share_local_bindings() -> None:
+    assert_error(
+        program(
+            Block([VarDecl("int", "local")]),
+            Block([ExprStmt(Identifier("local", line=8, column=5))]),
+        ),
+        "variable 'local' is used before it is declared",
+        8,
+        5,
+    )
+
+
+def test_parameters_can_be_shadowed_in_nested_blocks() -> None:
+    inner_use, parameter_use = Identifier("n"), Identifier("n")
+    helper = function(
+        "helper",
+        [Block([VarDecl("bool", "n"), ExprStmt(inner_use)]), Return(parameter_use)],
+        params=[Param("int", "n")],
+    )
+    analyse(program(functions=(helper,)))
+    assert inner_use.resolved_type == "bool"
+    assert parameter_use.resolved_type == "int"
+
+
+@pytest.mark.parametrize("kind", ["if", "while", "for", "after-return"])
+def test_unreachable_statements_are_still_checked(kind: str) -> None:
+    invalid = ExprStmt(Identifier("missing", line=7, column=9))
+    if kind == "if":
+        statements = [If(BoolLiteral(True), Return(IntLiteral(0)), invalid)]
+    elif kind == "while":
+        statements = [While(BoolLiteral(False), invalid)]
+    elif kind == "for":
+        statements = [For(None, BoolLiteral(False), None, invalid)]
+    else:
+        statements = [Return(IntLiteral(0)), invalid]
+    assert_error(
+        program(*statements), "variable 'missing' is used before it is declared", 7, 9
+    )
+
+
+def test_signature_errors_are_reported_before_function_bodies() -> None:
+    first_expression = Identifier("missing", line=3, column=5)
+    tree = program(
+        ExprStmt(first_expression),
+        functions=(function("invalid", return_type="float", line=8),),
+    )
+    assert_error(tree, "function 'invalid' has invalid return type 'float'", 8, 2)
+    assert first_expression.resolved_type is None
+
+
+def test_undeclared_assignment_target_stops_before_evaluating_value() -> None:
+    value = IntLiteral(3)
+    assert_error(
+        program(ExprStmt(Assign(Identifier("missing", line=6, column=4), value))),
+        "variable 'missing' is used before it is declared",
+        6,
+        4,
+    )
+    assert value.resolved_type is None
+
+
+@pytest.mark.parametrize("part", ["initializer", "condition", "step", "body"])
+def test_for_errors_restore_enclosing_scope_and_function(part: str) -> None:
+    invalid = Identifier("missing", line=8, column=6)
+    loop = For(
+        ExprStmt(invalid) if part == "initializer" else VarDecl("int", "i"),
+        invalid if part == "condition" else BoolLiteral(True),
+        invalid if part == "step" else None,
+        Block([ExprStmt(invalid)]) if part == "body" else Block(),
+    )
+    analyser = SemanticAnalyser()
+    with pytest.raises(SemanticError) as caught:
+        analyser.analyse(program(Block([loop])))
+    assert caught.value.message == "variable 'missing' is used before it is declared"
+    assert (caught.value.line, caught.value.column) == (8, 6)
+    assert analyser.current_scope is analyser.symbol_table.global_scope
+    assert analyser.current_function is None
+    assert analyser.lookup("i") is None
+
+
+def test_builtin_printf_obeys_normal_lexical_shadowing() -> None:
+    assert_error(
+        program(
+            VarDecl("bool", "printf"),
+            ExprStmt(Call("printf", [StringLiteral("hello")], line=8, column=4)),
+        ),
+        "cannot call var 'printf' of type 'bool'",
+        8,
+        4,
+    )
+
+
+def test_printf_builtin_becomes_visible_after_shadowing_scope_ends() -> None:
+    call = Call("printf", [StringLiteral("hello")])
+    symbols = analyse(program(Block([VarDecl("int", "printf")]), ExprStmt(call)))
+    assert call.resolved_type == "int"
+    signature = symbols.lookup_function("printf")
+    assert signature is not None and signature.builtin and signature.variadic
+    assert [(param.type_name, param.name) for param in signature.params] == [
+        ("string", "fmt")
+    ]
+
+
+@pytest.mark.parametrize("fmt", ["", "%%d", "%%%%", "%%s %%i %%c"])
+def test_printf_escaped_specifiers_consume_no_arguments(
+    printf_fallback: None,
+    fmt: str,
+) -> None:
+    call = Call("printf", [StringLiteral(fmt)])
+    analyse(program(ExprStmt(call)))
+    assert call.resolved_type == "int"
+
+
+def test_printf_invalid_argument_stops_before_format_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received: list[str] = []
+
+    def validate(fmt: str, arg_types: list[str], line: int, column: int) -> None:
+        received.append(fmt)
+
+    monkeypatch.setattr(format_io, "validate_printf", validate, raising=False)
+    assert_error(
+        program(
+            ExprStmt(
+                Call(
+                    "printf",
+                    [
+                        StringLiteral("%d"),
+                        Identifier("missing", line=10, column=16),
+                    ],
+                )
+            )
+        ),
+        "variable 'missing' is used before it is declared",
+        10,
+        16,
+    )
+    assert received == []
+
+
+def test_unsupported_ast_node_reports_its_source_location() -> None:
+    analyser = SemanticAnalyser()
+    with pytest.raises(SemanticError) as caught:
+        analyser.visit(Node(line=11, column=3))
+    assert caught.value.message == "unsupported syntax node 'Node'"
+    assert (caught.value.line, caught.value.column) == (11, 3)
+
+
+def test_return_outside_function_reports_its_source_location() -> None:
+    analyser = SemanticAnalyser()
+    with pytest.raises(SemanticError) as caught:
+        analyser.visit(Return(IntLiteral(0), line=4, column=2))
+    assert caught.value.message == "return statement outside a function"
+    assert (caught.value.line, caught.value.column) == (4, 2)
