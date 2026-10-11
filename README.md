@@ -2,9 +2,28 @@
 
 A working educational source-to-source compiler for a defined subset of C. The
 pipeline tokenizes source, builds a shared AST, checks types and lexical scopes,
-and generates standalone Python 3.10+ programs.
+and generates formatted, standalone Python 3.10+ programs.
 
-## Setup
+## Install the CLI
+
+Requires Python 3.10 or newer. From the directory containing `pyproject.toml`:
+
+```sh
+pipx install .
+pipx ensurepath
+cminus --version
+cminus-check --version
+```
+
+This installs both commands in an isolated application environment. After
+`ensurepath`, open a new terminal if the commands are not yet on your PATH.
+No project virtual-environment activation is needed. See the
+[installation guide](docs/installation.md) for pipx setup, wheel installation,
+upgrades, removal, and distribution builds. The
+[Python Packaging User Guide](https://packaging.python.org/en/latest/guides/installing-stand-alone-command-line-tools/)
+explains how pipx exposes CLI commands.
+
+## Development setup
 
 ```sh
 python3 -m venv .venv
@@ -13,8 +32,9 @@ python -m pip install -e '.[dev]'
 cminus --version
 ```
 
-The compiler has no third-party runtime dependencies. Development dependencies
-provide pytest and Black. A C11 compiler is needed for equivalence checks.
+The compiler uses Black to format its output. Development dependencies provide
+pytest and pycodestyle. Generated programs use only Python's standard library.
+A C11 compiler is needed for equivalence checks.
 
 ## Translate, run, and inspect
 
@@ -22,6 +42,8 @@ provide pytest and Black. A C11 compiler is needed for equivalence checks.
 cminus examples/hello.c -o /tmp/hello.py
 python -I -S /tmp/hello.py
 cminus examples/factorial.c --run
+cminus examples/loop_control.c --run
+cminus examples/globals_and_recursion.c --run
 cminus examples/factorial.c --dump-tokens --dump-ast --dump-symbols --verbose-passes -o /tmp/factorial.py
 cminus-check examples/factorial.c --cc gcc --timeout 10
 ```
@@ -50,27 +72,41 @@ executable installed by Homebrew when verifying with GNU GCC.
 
 ## Implemented scope
 
-| Area | Working core |
+| Area | Supported behavior |
 | --- | --- |
-| Values | Decimal `int`, `bool`, and ASCII string literals |
-| Variables | Local declarations, initialization, assignment, block shadowing |
+| Values | Decimal `int`, `bool`, and UTF-8 string literals |
+| Variables | Global and local declarations, initialization, assignment, block shadowing |
 | Expressions | Arithmetic, comparisons, `!`, short-circuit `&&` / `||`, nested calls |
-| Control flow | `if` / `else`, `while`, `do-while`, `for`, `return` |
-| Functions | Typed parameters; `int`, `bool`, or `void` returns; direct recursion |
-| Output | Literal-format `printf`: `%d`, `%i`, `%c`, `%s`, `%%`; byte-count return |
+| Control flow | `if` / `else`, `while`, `do-while`, `for`, `break`, `continue`, `return` |
+| Functions | Typed parameters, prototypes, forward calls, direct and mutual recursion |
+| Output | Literal-format `printf`: `%d`, `%i`, `%c`, `%s`, `%%`, widths and precision |
+| Formatting | Automatic Black formatting at 79 columns, with AST equivalence checks |
 | Teaching tools | Tokens, typed AST, scoped symbol tables, pass tracing |
 | Verification | Standalone golden cases and exact C11 execution comparisons |
 
-Functions must be defined before calls; direct recursion is supported. An
-`int main()` or `int main(void)` is required. Includes are virtual whitelisted
-`<stdio.h>` and `<stdbool.h>` directives, placed before function definitions.
+Functions must be declared before calls: either a definition or a matching
+prototype suffices. Used functions must have a definition in the same program.
+Returns may be `int`, `bool`, or `void`; an `int main()` or `int main(void)`
+definition is required. Global numeric variables default to zero, or accept a
+constant numeric initializer. Includes are virtual whitelisted `<stdio.h>` and
+`<stdbool.h>` directives, placed before top-level declarations.
 
-The broader study remains the roadmap. Global variables, `break` / `continue`,
-prototypes and forward calls, mutual recursion, string variables and parameters,
-a GUI, and a post-generation formatter are deferred. Pointers, memory allocation,
-arrays, user-defined structures, floating point, bitwise operations, arbitrary
-preprocessing, and system APIs are outside this core. Unsupported source is
-diagnosed rather than silently translated.
+`printf` validates format arguments at compile time. Numeric conversions accept
+`-`, `+`, space, and `0` flags, widths, and precision; `%s` accepts width and
+precision, and `%c` accepts width. Dynamic `*` fields consume numeric arguments.
+Output preserves UTF-8 bytes, NUL termination, and the C byte-count return value.
+
+`break` and `continue` target the innermost enclosing loop. A `for` continuation
+runs its step expression, and a `do-while` continuation tests its condition.
+Both keywords receive a semantic diagnostic when used outside a loop.
+
+The required CLI features from the study are implemented for this defined subset.
+The [requirements audit](docs/requirements.md) maps them to implementation and
+verification evidence. Strings remain literals; string variables and parameters
+and a GUI are optional extensions. Pointers, memory allocation, arrays,
+user-defined structures, floating point, bitwise operations, arbitrary
+preprocessing, and system APIs are excluded. Unsupported source receives a
+positioned diagnostic.
 
 Equivalence is verified for defined, terminating C executions: integer results
 must fit the reference C `int`, divisors must be nonzero, variables must be
@@ -89,7 +125,9 @@ CI tests Python 3.10 and 3.14 with GNU GCC and rejects skipped or expected-failu
 tests. Local GCC-dependent tests skip if the selected compiler is unavailable.
 
 - [Formal grammar and language rules](docs/grammar.md)
+- [Installation and packaging](docs/installation.md)
 - [AST and binding contract](docs/ast_spec.md)
 - [Compiler walkthrough](docs/walkthrough.md)
+- [Study requirements audit](docs/requirements.md)
 - [Test guide](tests/README.md)
 - [Verification record](docs/verification.md)

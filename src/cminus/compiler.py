@@ -1,10 +1,11 @@
-"""The reusable lexical -> syntax -> semantic -> generation pipeline."""
+"""Run lexical, syntax, semantic, generation, and formatting passes."""
 
 from dataclasses import dataclass
 from typing import Callable
 
 from cminus.ast_nodes import Program
 from cminus.code_generator import generate
+from cminus.extras.formatter import format_source
 from cminus.lexer_analyser import tokenize
 from cminus.parser import parse
 from cminus.semantic_analyser import SymbolTable, analyse
@@ -34,4 +35,6 @@ def compile_source(
     symbols = analyse(program)
     report("code generation")
     python_source = generate(program, symbols)
+    report("Python formatting")
+    python_source = format_source(python_source)
     return Compilation(tokens, program, symbols, python_source)

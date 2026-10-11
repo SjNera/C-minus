@@ -23,6 +23,7 @@ class _RuntimeNames(ast.NodeTransformer):
         "c_int_div": "_cminus_div",
         "c_int_mod": "_cminus_mod",
         "c_printf": "_cminus_printf",
+        "parse_printf_format": "_cminus_printf_parts",
     }
 
     def visit_Name(self, node):
@@ -39,6 +40,8 @@ class CodeGenerator:
         self.symbols = symbols
         self.helpers: set[str] = set()
         self.return_type = "void"
+        self.loops: list[nodes.While | nodes.DoWhile | nodes.For] = []
+        self.global_writes: set[str] = set()
 
     def bound_name(self, node: nodes.Node) -> str:
         if node.binding_id is None or node.binding_id not in self.symbols.bindings:
@@ -48,7 +51,7 @@ class CodeGenerator:
             return "_cminus_printf"
         if symbol.kind == "function" and symbol.name == "main":
             return "main"
-        return f"{symbol.name}__cm{symbol.binding_id}"
+        return f"{symbol.name[:32]}__cm{symbol.binding_id}"
 
     def convert(self, value: ast.expr, type_name: str) -> ast.expr:
         return _call("bool" if type_name == "bool" else "int", value)
@@ -59,6 +62,9 @@ class CodeGenerator:
         if isinstance(node, nodes.Identifier):
             return _name(self.bound_name(node))
         if isinstance(node, nodes.Assign):
+            symbol = self.symbols.bindings[node.target.binding_id]
+            if symbol.is_global:
+                self.global_writes.add(self.bound_name(node.target))
             return ast.NamedExpr(
                 target=_name(self.bound_name(node.target), store=True),
                 value=self.convert(
@@ -69,7 +75,7 @@ class CodeGenerator:
             symbol = self.symbols.bindings[node.binding_id]
             args = [self.expression(arg) for arg in node.args]
             if symbol.builtin:
-                self.helpers.add("c_printf")
+                self.helpers.update({"c_printf", "parse_printf_format"})
             else:
                 args = [
                     self.convert(arg, param.type_name)
@@ -118,6 +124,22 @@ class CodeGenerator:
     def body(self, node: nodes.Stmt) -> list[ast.stmt]:
         return self.statements(node) or [ast.Pass()]
 
+    def loop_body(
+        self, node: nodes.While | nodes.DoWhile | nodes.For
+    ) -> list[ast.stmt]:
+        self.loops.append(node)
+        try:
+            return self.body(node.body)
+        finally:
+            self.loops.pop()
+
+    def exit_if_false(self, condition: nodes.Expr) -> ast.If:
+        return ast.If(
+            test=ast.UnaryOp(op=ast.Not(), operand=self.expression(condition)),
+            body=[ast.Break()],
+            orelse=[],
+        )
+
     def statements(self, node: nodes.Stmt) -> list[ast.stmt]:
         if isinstance(node, nodes.Block):
             return [
@@ -146,6 +168,19 @@ class CodeGenerator:
                 else self.convert(self.expression(node.value), self.return_type)
             )
             return [ast.Return(value=value)]
+        if isinstance(node, (nodes.Break, nodes.Continue)):
+            if not self.loops:
+                raise ValueError("loop jumps require an AST validated by analyse()")
+            if isinstance(node, nodes.Break):
+                return [ast.Break()]
+            loop = self.loops[-1]
+            # A Python continue skips the lowered loop's tail. Emit the C
+            # continuation operation first, then skip the remaining body.
+            if isinstance(loop, nodes.For) and loop.step is not None:
+                return [ast.Expr(value=self.expression(loop.step)), ast.Continue()]
+            if isinstance(loop, nodes.DoWhile):
+                return [self.exit_if_false(loop.condition), ast.Continue()]
+            return [ast.Continue()]
         if isinstance(node, nodes.If):
             return [
                 ast.If(
@@ -160,25 +195,17 @@ class CodeGenerator:
             return [
                 ast.While(
                     test=self.expression(node.condition),
-                    body=self.body(node.body),
+                    body=self.loop_body(node),
                     orelse=[],
                 )
             ]
         if isinstance(node, nodes.DoWhile):
-            body = self.body(node.body)
-            body.append(
-                ast.If(
-                    test=ast.UnaryOp(
-                        op=ast.Not(), operand=self.expression(node.condition)
-                    ),
-                    body=[ast.Break()],
-                    orelse=[],
-                )
-            )
+            body = self.loop_body(node)
+            body.append(self.exit_if_false(node.condition))
             return [ast.While(test=ast.Constant(value=True), body=body, orelse=[])]
         if isinstance(node, nodes.For):
             initial = [] if node.init is None else self.statements(node.init)
-            body = self.body(node.body)
+            body = self.loop_body(node)
             if node.step is not None:
                 body.append(ast.Expr(value=self.expression(node.step)))
             condition = (
@@ -191,7 +218,12 @@ class CodeGenerator:
 
     def function(self, node: nodes.FunctionDecl) -> ast.FunctionDef:
         self.return_type = node.return_type
+        self.global_writes = set()
         body = self.statements(node.body)
+        if self.global_writes:
+            body = [
+                ast.Global(names=[name]) for name in sorted(self.global_writes)
+            ] + body
         if node.name == "main":
             body.append(ast.Return(value=ast.Constant(value=0)))
         arguments = ast.arguments(
@@ -215,9 +247,18 @@ class CodeGenerator:
         )
 
     def generate(self, program: nodes.Program) -> str:
+        globals = [
+            ast.Assign(
+                targets=[_name(self.bound_name(node), store=True)],
+                value=ast.Constant(
+                    value=self.symbols.bindings[node.binding_id].initial_value
+                ),
+            )
+            for node in program.globals
+        ]
         functions = [self.function(function) for function in program.functions]
         helpers = []
-        for helper in ("c_int_div", "c_int_mod", "c_printf"):
+        for helper in ("c_int_div", "c_int_mod", "parse_printf_format", "c_printf"):
             if helper in self.helpers:
                 definition = ast.parse(
                     inspect.getsource(getattr(runtime, helper))
@@ -230,6 +271,7 @@ class CodeGenerator:
             body=[
                 ast.Import(names=[ast.alias(name="sys", asname="_cminus_sys")]),
                 *helpers,
+                *globals,
                 *functions,
                 *entry,
             ],

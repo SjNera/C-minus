@@ -4,22 +4,40 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cminus"
-version = "0.1.0"
+dynamic = ["version"]
 description = "C-Minus: a C-subset to Python source-to-source compiler"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []                      # core compiler has no third-party dependencies
+dependencies = ["black>=24.0"]        # generated programs use only Python's stdlib
+keywords = ["cli", "compiler", "transpiler", "c", "python", "education"]
+classifiers = [
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Compilers",
+]
 
 [project.optional-dependencies]
 format = ["black>=24.0"]
-dev    = ["black>=24.0", "pytest>=8.0"]
+dev    = ["pytest>=8.0", "pycodestyle>=2.12"]
+build  = ["build>=1.2", "twine>=6.0"]
 
 [project.scripts]
 cminus       = "cminus.main:main"
 cminus-check = "cminus.extras.gcc_equivalence:main"
 
+[tool.setuptools]
+include-package-data = false
+
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["cminus", "cminus.*"]
+namespaces = false
+
+[tool.setuptools.dynamic]
+version = {attr = "cminus.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

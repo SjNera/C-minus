@@ -50,6 +50,8 @@ def test_zero_divisor_raises_a_runtime_error(helper) -> None:
         ("%d %i", (True, False), "1 0"),
         ("%c", (65,), "A"),
         ("%s", ("text",), "text"),
+        ("%s", ("café 世界",), "café 世界"),
+        ("%+05d|%5.3d|%-5.2s|%3c", (7, -7, "hello", 65), "+0007| -007|he   |  A"),
         ("%%%d", (42,), "%42"),
         ("%d %i %c %s %%", (7, -3, 65, "ok"), "7 -3 A ok %"),
     ],
@@ -64,4 +66,4 @@ def test_printf_writes_supported_formats_and_returns_character_count(
     output = capsys.readouterr()
     assert output.out == expected
     assert output.err == ""
-    assert count == len(expected)
+    assert count == len(expected.encode("utf-8"))

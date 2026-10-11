@@ -23,7 +23,7 @@ jobs:
           gcc --version
           gcc -v 2>&1 | grep -q 'gcc version'
       - name: Install compiler and test tools
-        run: python -m pip install -e . 'pytest>=8.0'
+        run: python -m pip install -e '.[dev,build]'
       - name: Run all tests with no skips or expected failures
         run: |
           python -m pytest -q --junitxml=results.xml
@@ -36,9 +36,20 @@ jobs:
         run: |
           cminus-check examples/hello.c
           cminus-check examples/factorial.c
+          cminus-check examples/loop_control.c
+          cminus-check examples/globals_and_recursion.c
           cminus-check tests/gcc_cases/formatting.c
       - name: Execute generated code independently
         run: |
           cminus examples/hello.c -o /tmp/cminus-hello.py
           cd /tmp
           python -I -S /tmp/cminus-hello.py
+      - name: Build wheel and source distribution
+        run: |
+          python -m build
+          python -m twine check --strict dist/*
+      - name: Verify a clean wheel installation
+        run: |
+          python -m venv "$RUNNER_TEMP/cminus-install"
+          "$RUNNER_TEMP/cminus-install/bin/python" -m pip install dist/*.whl
+          "$RUNNER_TEMP/cminus-install/bin/python" tools/check_installation.py --cc gcc

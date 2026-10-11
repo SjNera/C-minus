@@ -26,6 +26,22 @@ GOLDENS = [
     ("bindings.c", b"20 10 5 9\n1 1\n", 0),
     ("empty.c", b"", 0),
     ("loop_conditions.c", b"0123210123 3\n", 0),
+    ("loop_jumps.c", b"while 5 8\nfor 6 11\ndo 5 8\nempty 3\n", 0),
+    ("loop_jump_effects.c", b"C0 S0 C1 B1 S1 C2 |C1 D2 C2 C3 |V1 V2 V3 \n", 0),
+    ("nested_loop_jumps.c", b"C1 total=648 outer=2\n", 0),
+    ("globals.c", b"start 0 0 -2 1\nstate 5 1 11\nshadow 99\nend 4 4 1\n", 0),
+    ("global_constants.c", b"-7 6 5 0 1 1 1\n", 0),
+    ("prototypes.c", b"1 1 5\n", 0),
+    (
+        "printf_fields.c",
+        b"[+00023][   -7][004   ][   -0009][][     ]\nn=43\n[   -0012][hi    ][caf\xc3][  A][B  ]\n[7    ][7][+][]\n",
+        0,
+    ),
+    (
+        "utf8_strings.c",
+        "Mabuhay: café ñ 世界\nbytes=25\n[      é][éé    ]\n".encode(),
+        0,
+    ),
 ]
 
 
@@ -64,10 +80,6 @@ def test_exact_c11_equivalence(filename, stdout, status, tmp_path):
 @pytest.mark.parametrize(
     "source",
     [
-        "int global; int main() {}",
-        "int f(int n); int main() {}",
-        "int main() { break; }",
-        "int main() { continue; }",
         "int main() { int *p; }",
         "int main() { int a[3]; }",
         "int main() { float f = 1.5; }",
@@ -77,8 +89,7 @@ def test_exact_c11_equivalence(filename, stdout, status, tmp_path):
         "#define X 1\nint main() {}",
         "#include <stdlib.h>\nint main() {}",
         "#include <stdio.h> int main() {}",
-        'int main() { printf("%5d", 1); }',
-        'int main() { printf("é"); }',
+        'int main() { printf("%f", 1); }',
         "int main() { return 0x10; }",
         "int main() { return 012; }",
     ],
@@ -90,7 +101,7 @@ def test_deferred_and_excluded_features_are_diagnosed(source):
 
 
 def test_forward_call_is_rejected_at_the_call():
-    with pytest.raises(SemanticError, match="must be defined before") as caught:
+    with pytest.raises(SemanticError, match="must be declared before") as caught:
         compile_source("int main() { return helper(); }\nint helper() { return 1; }")
     assert (caught.value.line, caught.value.column) == (1, 21)
 

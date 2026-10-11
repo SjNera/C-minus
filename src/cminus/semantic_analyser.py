@@ -14,12 +14,15 @@ from cminus.ast_nodes import (
     BinaryOp,
     Block,
     BoolLiteral,
+    Break,
     Call,
+    Continue,
     DoWhile,
     Expr,
     ExprStmt,
     For,
     FunctionDecl,
+    FunctionPrototype,
     Identifier,
     If,
     IntLiteral,
@@ -34,6 +37,7 @@ from cminus.ast_nodes import (
     While,
 )
 from cminus.errors import SemanticError
+from cminus.runtime import c_int_div, c_int_mod
 
 
 @dataclass
@@ -49,6 +53,9 @@ class Symbol:
     variadic: bool = False
     builtin: bool = False
     binding_id: int | None = field(default=None, kw_only=True)
+    is_global: bool = field(default=False, kw_only=True)
+    defined: bool = field(default=False, kw_only=True)
+    initial_value: int | bool | None = field(default=None, kw_only=True)
 
 
 @dataclass
@@ -90,7 +97,8 @@ class SymbolTable:
             for symbol in scope.symbols.values():
                 if symbol.kind == "function":
                     params = [
-                        f"{param.type_name} {param.name}" for param in symbol.params
+                        f"{param.type_name} {param.name}".rstrip()
+                        for param in symbol.params
                     ]
                     if symbol.variadic:
                         params.append("...")
@@ -165,6 +173,8 @@ class SemanticAnalyser:
         self._scope_count = 0
         self._visible_functions: set[str] = {"printf"}
         self._initializing: set[int] = set()
+        self._loop_depth = 0
+        self._visible_globals: set[int] = set()
 
     def analyse(self, program: Program) -> SymbolTable:
         """Analyse a program with fresh state, raising the first semantic error."""
@@ -174,6 +184,8 @@ class SemanticAnalyser:
         self._scope_count = 0
         self._visible_functions = {"printf"}
         self._initializing = set()
+        self._loop_depth = 0
+        self._visible_globals = set()
         self.declare(
             Symbol(
                 "printf",
@@ -184,6 +196,7 @@ class SemanticAnalyser:
                 params=[Param(TYPE_STRING, "fmt")],
                 variadic=True,
                 builtin=True,
+                defined=True,
             )
         )
         self.visit(program)
@@ -287,40 +300,39 @@ class SemanticAnalyser:
         finally:
             self.pop_scope()
 
+    def _visit_loop_body(self, statement: Stmt, label: str) -> None:
+        """Keep jump validation local to the enclosing loop body."""
+        self._loop_depth += 1
+        try:
+            self._visit_scoped_statement(statement, label)
+        finally:
+            self._loop_depth -= 1
+
     def visit_Program(self, node: Program) -> None:
-        """Collect signatures, validate main, then analyse every function body."""
-        for function in node.functions:
-            previous = self.symbol_table.lookup_function(function.name)
-            if previous is not None:
-                first = "a built-in" if previous.builtin else f"line {previous.line}"
-                self._error(
-                    f"duplicate function '{function.name}' (first declared at {first})",
-                    function,
-                )
-            if function.return_type not in (TYPE_INT, TYPE_BOOL, TYPE_VOID):
-                self._error(
-                    f"function '{function.name}' has invalid return type"
-                    f" '{function.return_type}'",
-                    function,
-                )
-            for param in function.params:
+        """Collect bindings, then check bodies in C declaration order."""
+        for declaration in node.declarations:
+            if isinstance(declaration, (FunctionDecl, FunctionPrototype)):
+                self._declare_function(declaration)
+            elif isinstance(declaration, VarDecl):
                 self._check_declaration_type(
-                    param.type_name, f"parameter '{param.name}'", param
+                    declaration.type_name, f"variable '{declaration.name}'", declaration
                 )
-            symbol = self.declare(
-                Symbol(
-                    function.name,
-                    "function",
-                    function.return_type,
-                    function.line,
-                    function.column,
-                    params=list(function.params),
+                symbol = self.declare(
+                    Symbol(
+                        declaration.name,
+                        "var",
+                        declaration.type_name,
+                        declaration.line,
+                        declaration.column,
+                        is_global=True,
+                    )
                 )
-            )
-            function.binding_id = symbol.binding_id
+                declaration.binding_id = symbol.binding_id
+            else:
+                self._error("expected a top-level declaration", declaration)
 
         main = self.symbol_table.lookup_function("main")
-        if main is None:
+        if main is None or not main.defined:
             self._error("'main' function is not defined", node)
         if main.type_name != TYPE_INT or main.params:
             raise SemanticError(
@@ -328,14 +340,132 @@ class SemanticAnalyser:
                 main.line,
                 main.column,
             )
-        for function in node.functions:
-            self._visible_functions.add(function.name)
-            self.visit(function)
+        for declaration in node.declarations:
+            if isinstance(declaration, VarDecl):
+                self._visible_globals.add(declaration.binding_id)
+                self._analyse_global(declaration)
+            else:
+                self._visible_functions.add(declaration.name)
+                if isinstance(declaration, FunctionDecl):
+                    self.visit(declaration)
+
+    def _declare_function(self, node: FunctionDecl | FunctionPrototype) -> None:
+        if node.return_type not in (TYPE_INT, TYPE_BOOL, TYPE_VOID):
+            self._error(
+                f"function '{node.name}' has invalid return type '{node.return_type}'",
+                node,
+            )
+        for param in node.params:
+            self._check_declaration_type(
+                param.type_name, f"parameter '{param.name}'", param
+            )
+        if isinstance(node, FunctionPrototype):
+            names = {}
+            for param in node.params:
+                if param.name and param.name in names:
+                    self._error(
+                        f"redeclaration of '{param.name}' in the same scope (first declared at line {names[param.name]})",
+                        param,
+                    )
+                if param.name:
+                    names[param.name] = param.line
+        previous = self.lookup(node.name)
+        definition = isinstance(node, FunctionDecl)
+        if previous is not None:
+            if previous.kind != "function":
+                self._error(
+                    f"redeclaration of '{node.name}' in the same scope (first declared at line {previous.line})",
+                    node,
+                )
+            if previous.builtin or (definition and previous.defined):
+                first = "a built-in" if previous.builtin else f"line {previous.line}"
+                self._error(
+                    f"duplicate function '{node.name}' (first declared at {first})",
+                    node,
+                )
+            if previous.type_name != node.return_type or [
+                p.type_name for p in previous.params
+            ] != [p.type_name for p in node.params]:
+                self._error(
+                    f"conflicting declaration of function '{node.name}' (first declared at line {previous.line})",
+                    node,
+                )
+            previous.defined = previous.defined or definition
+            symbol = previous
+        else:
+            symbol = self.declare(
+                Symbol(
+                    node.name,
+                    "function",
+                    node.return_type,
+                    node.line,
+                    node.column,
+                    params=list(node.params),
+                    defined=definition,
+                )
+            )
+        node.binding_id = symbol.binding_id
+
+    def _analyse_global(self, node: VarDecl) -> None:
+        symbol = self.symbol_table.bindings[node.binding_id]
+        value = 0
+        if node.init is not None:
+            self._check_initializer(node, symbol)
+            self._check_constant_expression(node.init)
+            value = self._constant_value(node.init)
+        symbol.initial_value = (
+            bool(value) if node.type_name == TYPE_BOOL else int(value)
+        )
+
+    def _check_constant_expression(self, node: Expr) -> None:
+        if isinstance(node, (IntLiteral, BoolLiteral)):
+            return
+        if isinstance(node, UnaryOp):
+            self._check_constant_expression(node.operand)
+            return
+        if isinstance(node, BinaryOp):
+            self._check_constant_expression(node.left)
+            self._check_constant_expression(node.right)
+            return
+        self._error("global initializer must be an integer constant expression", node)
+
+    def _constant_value(self, node: Expr) -> int:
+        if isinstance(node, (IntLiteral, BoolLiteral)):
+            return int(node.value)
+        if isinstance(node, UnaryOp):
+            value = self._constant_value(node.operand)
+            return -value if node.op == "-" else int(not value)
+        left = self._constant_value(node.left)
+        if node.op == "&&" and not left:
+            return 0
+        if node.op == "||" and left:
+            return 1
+        right = self._constant_value(node.right)
+        if node.op in {"/", "%"} and right == 0:
+            self._error("division by zero in global initializer", node)
+        operations = {
+            "+": lambda: left + right,
+            "-": lambda: left - right,
+            "*": lambda: left * right,
+            "/": lambda: c_int_div(left, right),
+            "%": lambda: c_int_mod(left, right),
+            "<": lambda: int(left < right),
+            "<=": lambda: int(left <= right),
+            ">": lambda: int(left > right),
+            ">=": lambda: int(left >= right),
+            "==": lambda: int(left == right),
+            "!=": lambda: int(left != right),
+            "&&": lambda: int(bool(right)),
+            "||": lambda: int(bool(right)),
+        }
+        return operations[node.op]()
 
     def visit_FunctionDecl(self, node: FunctionDecl) -> None:
         """Put parameters and top-level body declarations in the same scope."""
         previous_function = self.current_function
+        previous_loop_depth = self._loop_depth
         self.current_function = node
+        self._loop_depth = 0
         self.push_scope(node.name)
         try:
             for param in node.params:
@@ -344,6 +474,7 @@ class SemanticAnalyser:
         finally:
             self.pop_scope()
             self.current_function = previous_function
+            self._loop_depth = previous_loop_depth
 
     def visit_Param(self, node: Param) -> None:
         """Declare a validated function parameter."""
@@ -370,6 +501,9 @@ class SemanticAnalyser:
             Symbol(node.name, "var", node.type_name, node.line, node.column)
         )
         node.binding_id = symbol.binding_id
+        self._check_initializer(node, symbol)
+
+    def _check_initializer(self, node: VarDecl, symbol: Symbol) -> None:
         if node.init is not None:
             self._initializing.add(symbol.binding_id)
             try:
@@ -397,11 +531,11 @@ class SemanticAnalyser:
     def visit_While(self, node: While) -> None:
         """Check a while loop with a child scope for its body."""
         self._check_condition(node.condition)
-        self._visit_scoped_statement(node.body, "while")
+        self._visit_loop_body(node.body, "while")
 
     def visit_DoWhile(self, node: DoWhile) -> None:
         """Check a do-while condition outside its body's scope."""
-        self._visit_scoped_statement(node.body, "do-while")
+        self._visit_loop_body(node.body, "do-while")
         self._check_condition(node.condition)
 
     def visit_For(self, node: For) -> None:
@@ -414,9 +548,17 @@ class SemanticAnalyser:
                 self._check_condition(node.condition)
             if node.step is not None:
                 self._expression_type(node.step, allow_void=True)
-            self._visit_scoped_statement(node.body, "for-body")
+            self._visit_loop_body(node.body, "for-body")
         finally:
             self.pop_scope()
+
+    def visit_Break(self, node: Break) -> None:
+        if not self._loop_depth:
+            self._error("break statement outside a loop", node)
+
+    def visit_Continue(self, node: Continue) -> None:
+        if not self._loop_depth:
+            self._error("continue statement outside a loop", node)
 
     def visit_Return(self, node: Return) -> None:
         """Validate a return against the enclosing function's return type."""
@@ -447,6 +589,8 @@ class SemanticAnalyser:
             self._error(f"variable '{node.name}' is used before it is declared", node)
         if symbol.kind == "function":
             self._error(f"function '{node.name}' cannot be used as a variable", node)
+        if symbol.is_global and symbol.binding_id not in self._visible_globals:
+            self._error(f"variable '{node.name}' is used before it is declared", node)
         node.binding_id = symbol.binding_id
         return symbol
 
@@ -513,8 +657,10 @@ class SemanticAnalyser:
             )
         if node.callee not in self._visible_functions:
             self._error(
-                f"function '{node.callee}' must be defined before it is called", node
+                f"function '{node.callee}' must be declared before it is called", node
             )
+        if not symbol.defined:
+            self._error(f"function '{node.callee}' is declared but not defined", node)
         node.binding_id = symbol.binding_id
         if symbol.builtin and node.callee == "printf":
             return self._visit_printf(node)

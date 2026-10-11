@@ -60,14 +60,20 @@ def test_unsupported_arguments_report_usage_on_stderr(
 
 
 @pytest.mark.parametrize("entry_point", ["module", "console"])
+@pytest.mark.parametrize(
+    "program,module",
+    [("cminus", "cminus"), ("cminus-check", "cminus.extras.gcc_equivalence")],
+)
 def test_version_entry_points_work_outside_the_repository(
     entry_point: str,
+    program: str,
+    module: str,
     tmp_path: Path,
 ) -> None:
     if entry_point == "module":
-        command = [sys.executable, "-m", "cminus", "--version"]
+        command = [sys.executable, "-m", module, "--version"]
     else:
-        script_name = "cminus.exe" if sys.platform == "win32" else "cminus"
+        script_name = program + (".exe" if sys.platform == "win32" else "")
         script = Path(sysconfig.get_path("scripts")) / script_name
         command = [str(script), "--version"]
     result = subprocess.run(
@@ -78,7 +84,7 @@ def test_version_entry_points_work_outside_the_repository(
         timeout=10,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout == f"cminus {__version__}\n"
+    assert result.stdout == f"{program} {__version__}\n"
     assert result.stderr == ""
 
 

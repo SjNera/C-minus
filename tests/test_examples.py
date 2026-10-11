@@ -20,6 +20,8 @@ EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
     [
         ("hello.c", "Hello, C-Minus!\n"),
         ("factorial.c", "1! = 1\n2! = 2\n3! = 6\n4! = 24\n5! = 120\n"),
+        ("loop_control.c", "1\n3\n5\n7\n"),
+        ("globals_and_recursion.c", "even(6)=1 calls=7\n"),
     ],
 )
 def test_valid_examples_compile_and_run(

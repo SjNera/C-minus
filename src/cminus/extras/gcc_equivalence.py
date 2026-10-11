@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 
+from cminus import __version__
 from cminus.compiler import compile_source
 from cminus.errors import CMinusError
 from cminus.extras.error_reporter import render_error
@@ -82,6 +83,8 @@ def compare_files(
                 "-Wextra",
                 "-Werror=implicit-function-declaration",
                 "-O0",
+                "-finput-charset=UTF-8",
+                "-fexec-charset=UTF-8",
                 c_file,
                 "-o",
                 executable,
@@ -112,6 +115,9 @@ def _positive_timeout(value):
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="cminus-check", description="Compare C-Minus output against a C11 compiler"
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"cminus-check {__version__}"
     )
     parser.add_argument("input", nargs="?", type=Path)
     parser.add_argument(

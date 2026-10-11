@@ -10,8 +10,9 @@ the strings `int`, `bool`, `string`, and `void`.
 
 | Node | Structural fields |
 | --- | --- |
-| `Program` | `functions`, `includes` |
+| `Program` | ordered `declarations`, `includes` |
 | `FunctionDecl` | `return_type`, `name`, `params`, `body` |
+| `FunctionPrototype` | `return_type`, `name`, `params` |
 | `Param` | `type_name`, `name` |
 | `Block` | `statements` |
 | `VarDecl` | `type_name`, `name`, optional `init` |
@@ -21,6 +22,7 @@ the strings `int`, `bool`, `string`, and `void`.
 | `DoWhile` | `body`, `condition` |
 | `For` | optional `init`, `condition`, `step`; `body` |
 | `Return` | optional `value` |
+| `Break`, `Continue` | no structural fields; inherited source metadata |
 | `IntLiteral`, `BoolLiteral`, `StringLiteral` | `value` |
 | `Identifier` | `name` |
 | `Assign` | identifier `target`, `value` |
@@ -29,8 +31,13 @@ the strings `int`, `bool`, `string`, and `void`.
 | `Call` | `callee`, `args` |
 
 `StringLiteral.value` contains decoded text. Includes are header names such as
-`stdio.h`. `For.init` is `VarDecl`, `ExprStmt`, or `None`. The current AST has no
-nodes for global variables, `break`, or `continue`.
+`stdio.h`. `For.init` is `VarDecl`, `ExprStmt`, or `None`.
+`Program.declarations` preserves source order across `VarDecl`,
+`FunctionPrototype`, and `FunctionDecl` nodes. A `VarDecl` at program level is a
+global variable. `Program.functions` and `Program.globals` are filtered views of
+definitions and global variables. An unnamed prototype parameter has `name=""`.
+Loop jumps are statements, validated against the enclosing loop context and
+generated for the innermost loop.
 
 ## Phase contracts
 
@@ -41,6 +48,8 @@ nodes for global variables, `break`, or `continue`.
    `SymbolTable`, raising `SemanticError` for invalid bindings or types.
 4. `code_generator.generate(program, symbols)` requires the validated AST and
    its matching symbol table, and returns standalone Python source.
+5. `extras.formatter.format_source(python_source)` formats for Python 3.10 at
+   79 columns and validates unchanged AST semantics and executable syntax.
 
 `compiler.compile_source()` runs these phases and returns a `Compilation`
 containing `tokens`, `program`, `symbols`, and `python_source`.
@@ -52,9 +61,14 @@ Compound expressions receive a type; they do not all have their own binding.
 The generator uses these IDs rather than repeating name lookup.
 
 Symbols include declaration kind, type, location, and function parameters.
+Function symbols record `defined`; compatible prototypes and their definition
+share one binding. Variable symbols record `is_global`; global `initial_value`
+contains the normalized constant or zero default used in code generation.
 Scopes retain parent links and declarations in creation order. Parameters and
 the outer function block share a scope; nested blocks and loops add child scopes.
-The global scope holds functions and builtin `printf`, not global variables.
+The global scope holds functions, builtin `printf`, and global variables.
+Predeclaring symbols supports signature checks and mutual recursion, while
+source-order visibility checks still reject uses before a declaration.
 
 All source phases raise subclasses of `CMinusError`. CLI boundaries render the
 diagnostic; compiler modules do not print it. Introspection uses deterministic

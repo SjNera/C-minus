@@ -9,7 +9,9 @@ from cminus.ast_nodes import (
     BinaryOp,
     Block,
     BoolLiteral,
+    Break,
     Call,
+    Continue,
     DoWhile,
     Expr,
     ExprStmt,
@@ -53,6 +55,8 @@ from cminus.ast_nodes import (
         pytest.param(lambda **kw: DoWhile(Block(), BoolLiteral(False), **kw), id="do"),
         pytest.param(lambda **kw: For(None, None, None, Block(), **kw), id="for"),
         pytest.param(lambda **kw: Return(**kw), id="return"),
+        pytest.param(lambda **kw: Break(**kw), id="break"),
+        pytest.param(lambda **kw: Continue(**kw), id="continue"),
         pytest.param(lambda **kw: Param("int", "n", **kw), id="parameter"),
         pytest.param(
             lambda **kw: FunctionDecl("int", "main", [], Block(), **kw),

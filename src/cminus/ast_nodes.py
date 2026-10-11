@@ -133,6 +133,16 @@ class Return(Stmt):
     value: Optional[Expr] = None
 
 
+@dataclass
+class Break(Stmt):
+    pass
+
+
+@dataclass
+class Continue(Stmt):
+    pass
+
+
 # ------------------------------------------------------------------ top level
 @dataclass
 class Param(Node):
@@ -149,6 +159,21 @@ class FunctionDecl(Node):
 
 
 @dataclass
+class FunctionPrototype(Node):
+    return_type: str
+    name: str
+    params: list[Param]
+
+
+@dataclass
 class Program(Node):
-    functions: list[FunctionDecl]
+    declarations: list[FunctionDecl | FunctionPrototype | VarDecl]
     includes: list[str] = field(default_factory=list)  # e.g. ["stdio.h"]
+
+    @property
+    def functions(self) -> list[FunctionDecl]:
+        return [node for node in self.declarations if isinstance(node, FunctionDecl)]
+
+    @property
+    def globals(self) -> list[VarDecl]:
+        return [node for node in self.declarations if isinstance(node, VarDecl)]

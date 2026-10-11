@@ -147,12 +147,12 @@ def test_factorial_helper_call_and_recursion() -> None:
     assert all(expr.resolved_type is not None for expr in expressions(tree))
 
 
-def test_mutually_recursive_functions_require_deferred_prototypes() -> None:
+def test_mutually_recursive_functions_require_prototypes() -> None:
     first = function("first", [Return(Call("second"))])
     second = function("second", [Return(Call("first"))])
     assert_error(
         program(Return(Call("first")), functions=(first, second)),
-        "function 'second' must be defined before it is called",
+        "function 'second' must be declared before it is called",
         0,
         0,
     )

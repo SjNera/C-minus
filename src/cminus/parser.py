@@ -67,12 +67,13 @@ class Parser:
         includes = []
         while self.current.type == "INCLUDE":
             includes.append(self.take().lexeme.split("<", 1)[1].split(">", 1)[0])
-        functions = []
+        declarations = []
         while self.current.type != "EOF":
             return_type = self.type_name(allow_void=True)
             name = self.identifier()
             if self.current.lexeme != "(":
-                self.error("global variables are outside the core")
+                declarations.append(self.finish_declaration(return_type, name))
+                continue
             self.take()
             params = []
             if self.match("void"):
@@ -81,24 +82,38 @@ class Parser:
             elif self.current.lexeme != ")":
                 while True:
                     type_token = self.type_name()
-                    param = self.identifier()
+                    param = self.take() if self.current.type == "IDENTIFIER" else None
                     params.append(
                         nodes.Param(
-                            type_token.lexeme, param.lexeme, **self.location(param)
+                            type_token.lexeme,
+                            "" if param is None else param.lexeme,
+                            **self.location(type_token if param is None else param),
                         )
                     )
                     if not self.match(","):
                         break
             self.expect(")")
-            if self.current.lexeme == ";":
-                self.error("function prototypes are outside the core")
+            if self.match(";"):
+                declarations.append(
+                    nodes.FunctionPrototype(
+                        return_type.lexeme, name.lexeme, params, **self.location(name)
+                    )
+                )
+                continue
+            for param in params:
+                if not param.name:
+                    raise ParseError(
+                        "function definitions require parameter names",
+                        param.line,
+                        param.column,
+                    )
             body = self.block()
-            functions.append(
+            declarations.append(
                 nodes.FunctionDecl(
                     return_type.lexeme, name.lexeme, params, body, **self.location(name)
                 )
             )
-        return nodes.Program(functions, includes, **self.location(first))
+        return nodes.Program(declarations, includes, **self.location(first))
 
     def block(self) -> nodes.Block:
         opening = self.expect("{")
@@ -113,6 +128,9 @@ class Parser:
     def declaration(self) -> nodes.VarDecl:
         type_token = self.type_name()
         name = self.identifier()
+        return self.finish_declaration(type_token, name)
+
+    def finish_declaration(self, type_token: Token, name: Token) -> nodes.VarDecl:
         init = self.expression() if self.match("=") else None
         self.expect(";")
         return nodes.VarDecl(
@@ -171,6 +189,12 @@ class Parser:
             value = None if self.current.lexeme == ";" else self.expression()
             self.expect(";")
             return nodes.Return(value, **location)
+        if self.match("break"):
+            self.expect(";")
+            return nodes.Break(**location)
+        if self.match("continue"):
+            self.expect(";")
+            return nodes.Continue(**location)
         if token.type == "KEYWORD":
             self.error(f"'{token.lexeme}' is outside the core")
         value = self.expression()

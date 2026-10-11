@@ -176,10 +176,6 @@ def tokenize(source: str) -> list[Token]:
                     raise LexicalError(
                         "unterminated string literal", start_line, start_column
                     )
-                if not source[index].isascii():
-                    raise LexicalError(
-                        "core string literals must be ASCII", line, column
-                    )
                 if source[index] == "\\":
                     escape_line, escape_column = line, column
                     advance()

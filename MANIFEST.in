@@ -1,0 +1,7 @@
+include README.md LICENSE pyproject.toml
+recursive-include .github/workflows *.yml
+recursive-include docs *.md *.json
+recursive-include examples *.c
+recursive-include tests *.py *.md *.c
+recursive-include tools *.py
+global-exclude .DS_Store *.py[cod]

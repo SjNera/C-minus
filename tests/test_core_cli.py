@@ -30,7 +30,7 @@ def test_translation_and_all_inspection_flags_use_separate_streams(tmp_path, cap
     compile(output.out, "generated.py", "exec")
     assert "Tokens:" in output.err and "AST:" in output.err and "Symbols:" in output.err
     assert "binding_id=" in output.err and "resolved_type='int'" in output.err
-    assert output.err.count("[cminus]") == 4
+    assert output.err.count("[cminus]") == 5
 
 
 def test_output_file_and_run_from_another_directory(tmp_path):
