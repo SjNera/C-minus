@@ -1,4 +1,4 @@
-"""Pending integration tests for every committed C example."""
+"""integration tests for every committed C example."""
 
 import subprocess
 import sys
@@ -13,11 +13,6 @@ from cminus.parser import parse
 from cminus.semantic_analyser import analyse
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
-pytestmark = pytest.mark.xfail(
-    raises=NotImplementedError,
-    strict=True,
-    reason="example pipelines depend on unfinished compiler stages",
-)
 
 
 @pytest.mark.parametrize(

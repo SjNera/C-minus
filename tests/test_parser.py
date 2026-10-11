@@ -1,4 +1,4 @@
-"""Pending parser contracts using C constructs already represented by the AST."""
+"""parser contracts using C constructs already represented by the AST."""
 
 import pytest
 
@@ -15,12 +15,6 @@ from cminus.ast_nodes import (
 from cminus.errors import ParseError
 from cminus.lexer_analyser import tokenize
 from cminus.parser import parse
-
-pytestmark = pytest.mark.xfail(
-    raises=NotImplementedError,
-    strict=True,
-    reason="lexer and parser are not implemented yet",
-)
 
 
 def test_minimal_main_builds_a_program_and_return_statement() -> None:

@@ -1,14 +1,8 @@
-"""Pending C arithmetic and supported printf runtime behavior."""
+"""C arithmetic and supported printf runtime behavior."""
 
 import pytest
 
 from cminus.c_runtime import c_div, c_mod, printf
-
-pytestmark = pytest.mark.xfail(
-    raises=NotImplementedError,
-    strict=True,
-    reason="runtime helpers are not implemented yet",
-)
 
 
 @pytest.mark.parametrize(

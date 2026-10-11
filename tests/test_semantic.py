@@ -33,7 +33,6 @@ from cminus.ast_nodes import (
 from cminus.errors import SemanticError
 from cminus.semantic_analyser import SemanticAnalyser, SymbolTable, analyse
 
-
 BINARY_OPERATORS = (
     "+",
     "-",
@@ -70,12 +69,10 @@ def function(
 
 
 def program(*statements: Stmt, functions: tuple[FunctionDecl, ...] = ()) -> Program:
-    return Program([function("main", list(statements)), *functions], line=1, column=1)
+    return Program([*functions, function("main", list(statements))], line=1, column=1)
 
 
-def assert_error(
-    tree: Program, message: str, line: int, column: int
-) -> SemanticError:
+def assert_error(tree: Program, message: str, line: int, column: int) -> SemanticError:
     with pytest.raises(SemanticError) as caught:
         analyse(tree)
     error = caught.value
@@ -112,7 +109,7 @@ def printf_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delattr(format_io, "validate_printf", raising=False)
 
 
-def test_factorial_forward_call_and_recursion() -> None:
+def test_factorial_helper_call_and_recursion() -> None:
     factorial = function(
         "factorial",
         [
@@ -123,7 +120,9 @@ def test_factorial_forward_call_and_recursion() -> None:
                     BinaryOp(
                         "*",
                         Identifier("n"),
-                        Call("factorial", [BinaryOp("-", Identifier("n"), IntLiteral(1))]),
+                        Call(
+                            "factorial", [BinaryOp("-", Identifier("n"), IntLiteral(1))]
+                        ),
                     )
                 ),
             )
@@ -131,9 +130,7 @@ def test_factorial_forward_call_and_recursion() -> None:
         params=[Param("int", "n", line=3, column=15)],
         line=3,
     )
-    tree = program(
-        Return(Call("factorial", [IntLiteral(5)])), functions=(factorial,)
-    )
+    tree = program(Return(Call("factorial", [IntLiteral(5)])), functions=(factorial,))
     symbols = analyse(tree)
     assert isinstance(symbols, SymbolTable)
     signature = symbols.lookup_function("factorial")
@@ -142,16 +139,23 @@ def test_factorial_forward_call_and_recursion() -> None:
     assert [(p.type_name, p.name) for p in signature.params] == [("int", "n")]
     assert symbols.lookup_function("missing") is None
     assert [scope.name for scope in symbols.all_scopes] == [
-        "global", "main", "factorial"
+        "global",
+        "factorial",
+        "main",
     ]
-    assert symbols.all_scopes[-1].symbols["n"].kind == "param"
+    assert symbols.all_scopes[1].symbols["n"].kind == "param"
     assert all(expr.resolved_type is not None for expr in expressions(tree))
 
 
-def test_mutually_recursive_functions() -> None:
+def test_mutually_recursive_functions_require_deferred_prototypes() -> None:
     first = function("first", [Return(Call("second"))])
     second = function("second", [Return(Call("first"))])
-    analyse(program(Return(Call("first")), functions=(first, second)))
+    assert_error(
+        program(Return(Call("first")), functions=(first, second)),
+        "function 'second' must be defined before it is called",
+        0,
+        0,
+    )
 
 
 def test_dump_is_readable_and_deterministic() -> None:
@@ -185,14 +189,16 @@ def test_undeclared_or_used_before_declaration(later_declaration: bool) -> None:
     )
 
 
-def test_variable_is_not_visible_in_its_initializer() -> None:
+def test_variable_self_read_in_its_initializer_is_rejected() -> None:
     assert_error(
         program(
             VarDecl(
-                "int", "x", BinaryOp("+", Identifier("x", line=4, column=11), IntLiteral(1))
+                "int",
+                "x",
+                BinaryOp("+", Identifier("x", line=4, column=11), IntLiteral(1)),
             )
         ),
-        "variable 'x' is used before it is declared",
+        "variable 'x' is read in its own initializer",
         4,
         11,
     )
@@ -207,8 +213,8 @@ def test_redeclaration_reports_first_line() -> None:
     )
 
 
-def test_shadowing_and_outer_binding_in_initializer() -> None:
-    initializer = Identifier("x")
+def test_shadowing_has_distinct_bindings() -> None:
+    initializer = BoolLiteral(True)
     inner_use = Identifier("x")
     outer_use = Identifier("x")
     tree = program(
@@ -217,10 +223,23 @@ def test_shadowing_and_outer_binding_in_initializer() -> None:
         ExprStmt(outer_use),
     )
     symbols = analyse(tree)
-    assert initializer.resolved_type == "int"
+    assert initializer.resolved_type == "bool"
     assert inner_use.resolved_type == "bool"
     assert outer_use.resolved_type == "int"
+    assert inner_use.binding_id != outer_use.binding_id
     assert symbols.all_scopes[2].parent is symbols.all_scopes[1]
+
+
+def test_inner_initializer_cannot_read_the_outer_binding_with_the_same_name() -> None:
+    assert_error(
+        program(
+            VarDecl("int", "x", IntLiteral(5)),
+            Block([VarDecl("int", "x", Identifier("x", line=4, column=13))]),
+        ),
+        "variable 'x' is read in its own initializer",
+        4,
+        13,
+    )
 
 
 def test_parameter_redeclared_in_top_level_body() -> None:
@@ -257,9 +276,7 @@ def test_invalid_declaration_types(type_name: str, kind: str) -> None:
         tree = program(VarDecl(type_name, "x", line=8, column=4))
     else:
         tree = program(
-            functions=(
-                function("f", params=[Param(type_name, "x", line=8, column=4)]),
-            )
+            functions=(function("f", params=[Param(type_name, "x", line=8, column=4)]),)
         )
     assert_error(tree, f"{kind} 'x' cannot have type '{type_name}'", 8, 4)
 
@@ -397,7 +414,8 @@ def test_unsupported_operator_is_a_semantic_error(unary: bool) -> None:
         program(ExprStmt(expr)),
         (
             "unsupported unary operator '~'"
-            if unary else "unsupported binary operator '&'"
+            if unary
+            else "unsupported binary operator '&'"
         ),
         3,
         4,
@@ -622,7 +640,10 @@ def test_for_header_and_body_scopes() -> None:
     assert condition_use.resolved_type == step_use.resolved_type == "int"
     assert body_use.resolved_type == outer_use.resolved_type == "bool"
     assert [scope.name for scope in symbols.all_scopes] == [
-        "global", "main", "main/for1", "main/for1/for-body2"
+        "global",
+        "main",
+        "main/for1",
+        "main/for1/for-body2",
     ]
     assert symbols.all_scopes[3].parent is symbols.all_scopes[2]
 
@@ -643,7 +664,9 @@ def test_for_body_variable_not_visible_in_step() -> None:
     assert_error(
         program(
             For(
-                None, None, Identifier("x", line=8, column=20),
+                None,
+                None,
+                Identifier("x", line=8, column=20),
                 Block([VarDecl("int", "x")]),
             )
         ),
@@ -700,7 +723,8 @@ def test_do_while_condition_cannot_see_body_local() -> None:
 def test_if_branches_have_independent_block_scopes() -> None:
     tree = program(
         If(
-            BoolLiteral(True), Block([VarDecl("int", "x")]),
+            BoolLiteral(True),
+            Block([VarDecl("int", "x")]),
             Block([VarDecl("bool", "x")]),
         )
     )
@@ -709,19 +733,22 @@ def test_if_branches_have_independent_block_scopes() -> None:
     assert symbols.all_scopes[3].symbols["x"].type_name == "bool"
 
 
-@pytest.mark.parametrize("fmt,args", [
-    ("hello", []),
-    ("100%%", []),
-    ("%%%d", [IntLiteral(2)]),
-    ("%d", [BoolLiteral(True)]),
-    ("%i", [IntLiteral(2)]),
-    ("%c", [BoolLiteral(False)]),
-    ("%s", [StringLiteral("text")]),
-    (
-        "%d %i %c %s %%",
-        [IntLiteral(1), BoolLiteral(True), IntLiteral(65), StringLiteral("text")],
-    ),
-])
+@pytest.mark.parametrize(
+    "fmt,args",
+    [
+        ("hello", []),
+        ("100%%", []),
+        ("%%%d", [IntLiteral(2)]),
+        ("%d", [BoolLiteral(True)]),
+        ("%i", [IntLiteral(2)]),
+        ("%c", [BoolLiteral(False)]),
+        ("%s", [StringLiteral("text")]),
+        (
+            "%d %i %c %s %%",
+            [IntLiteral(1), BoolLiteral(True), IntLiteral(65), StringLiteral("text")],
+        ),
+    ],
+)
 def test_printf_valid_formats(
     printf_fallback: None, fmt: str, args: list[Expr]
 ) -> None:
@@ -732,30 +759,38 @@ def test_printf_valid_formats(
     assert all(arg.resolved_type is not None for arg in call.args)
 
 
-@pytest.mark.parametrize("fmt,args,message", [
-    ("%d", [], "printf format expects 1 arguments but 0 were given"),
-    ("%%", [IntLiteral(1)], "printf format expects 0 arguments but 1 were given"),
-    ("%s", [IntLiteral(1)], "printf specifier '%s' expects 'string', found 'int'"),
-    (
-        "%d", [StringLiteral("x")],
-        "printf specifier '%d' expects int or bool, found 'string'",
-    ),
-    (
-        "%i", [StringLiteral("x")],
-        "printf specifier '%i' expects int or bool, found 'string'",
-    ),
-    (
-        "%c", [StringLiteral("x")],
-        "printf specifier '%c' expects int or bool, found 'string'",
-    ),
-    ("%f", [], "unsupported printf format specifier '%f'"),
-    ("%", [], "incomplete printf format specifier '%'"),
-])
+@pytest.mark.parametrize(
+    "fmt,args,message",
+    [
+        ("%d", [], "printf format expects 1 arguments but 0 were given"),
+        ("%%", [IntLiteral(1)], "printf format expects 0 arguments but 1 were given"),
+        ("%s", [IntLiteral(1)], "printf specifier '%s' expects 'string', found 'int'"),
+        (
+            "%d",
+            [StringLiteral("x")],
+            "printf specifier '%d' expects int or bool, found 'string'",
+        ),
+        (
+            "%i",
+            [StringLiteral("x")],
+            "printf specifier '%i' expects int or bool, found 'string'",
+        ),
+        (
+            "%c",
+            [StringLiteral("x")],
+            "printf specifier '%c' expects int or bool, found 'string'",
+        ),
+        ("%f", [], "unsupported printf format specifier '%f'"),
+        ("%", [], "incomplete printf format specifier '%'"),
+    ],
+)
 def test_printf_invalid_formats(
     printf_fallback: None, fmt: str, args: list[Expr], message: str
 ) -> None:
     assert_error(
-        program(ExprStmt(Call("printf", [StringLiteral(fmt), *args], line=12, column=4))),
+        program(
+            ExprStmt(Call("printf", [StringLiteral(fmt), *args], line=12, column=4))
+        ),
         message,
         12,
         4,
@@ -788,8 +823,10 @@ def test_printf_uses_module7_validator(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(format_io, "validate_printf", validate, raising=False)
     call = Call(
-        "printf", [StringLiteral("%d %s"), BoolLiteral(True), StringLiteral("x")],
-        line=8, column=4,
+        "printf",
+        [StringLiteral("%d %s"), BoolLiteral(True), StringLiteral("x")],
+        line=8,
+        column=4,
     )
     analyse(program(ExprStmt(call)))
     assert received == [("%d %s", ["bool", "string"], 8, 4)]
@@ -816,11 +853,16 @@ def test_every_expression_is_annotated(printf_fallback: None) -> None:
         VarDecl("bool", "flag", UnaryOp("!", BoolLiteral(False))),
         If(
             Call("helper", [Identifier("flag")]),
-            Block([
-                ExprStmt(
-                    Assign(Identifier("x"), BinaryOp("/", Identifier("x"), IntLiteral(2)))
-                )
-            ]),
+            Block(
+                [
+                    ExprStmt(
+                        Assign(
+                            Identifier("x"),
+                            BinaryOp("/", Identifier("x"), IntLiteral(2)),
+                        )
+                    )
+                ]
+            ),
             ExprStmt(Call("noop")),
         ),
         While(
@@ -832,13 +874,20 @@ def test_every_expression_is_annotated(printf_fallback: None) -> None:
             VarDecl("int", "i", IntLiteral(0)),
             BinaryOp("<", Identifier("i"), IntLiteral(3)),
             Assign(Identifier("i"), BinaryOp("+", Identifier("i"), IntLiteral(1))),
-            Block([
-                ExprStmt(Call("printf", [
-                    StringLiteral("%d %s %%"),
-                    BinaryOp("%", Identifier("x"), IntLiteral(2)),
-                    StringLiteral("done"),
-                ]))
-            ]),
+            Block(
+                [
+                    ExprStmt(
+                        Call(
+                            "printf",
+                            [
+                                StringLiteral("%d %s %%"),
+                                BinaryOp("%", Identifier("x"), IntLiteral(2)),
+                                StringLiteral("done"),
+                            ],
+                        )
+                    )
+                ]
+            ),
         ),
         Return(UnaryOp("-", Identifier("x"))),
         functions=(helper, noop),
@@ -846,15 +895,22 @@ def test_every_expression_is_annotated(printf_fallback: None) -> None:
     analyse(tree)
     nodes = list(expressions(tree))
     assert {type(node) for node in nodes} == {
-        IntLiteral, BoolLiteral, StringLiteral, Identifier,
-        Assign, BinaryOp, UnaryOp, Call,
+        IntLiteral,
+        BoolLiteral,
+        StringLiteral,
+        Identifier,
+        Assign,
+        BinaryOp,
+        UnaryOp,
+        Call,
     }
     assert all(
         node.resolved_type in ("int", "bool", "string", "void") for node in nodes
     )
     assert all(
         node.target.resolved_type is not None
-        for node in nodes if isinstance(node, Assign)
+        for node in nodes
+        if isinstance(node, Assign)
     )
 
 
@@ -884,7 +940,12 @@ def test_analyser_reuse_resets_state_after_success_and_error() -> None:
     second = analyser.analyse(program(Block([VarDecl("bool", "fresh")])))
     assert second.lookup_function("old") is None
     assert first.lookup_function("old") is not None
-    assert first.all_scopes[1].symbols["x"].type_name == "int"
+    assert (
+        next(scope for scope in first.all_scopes if scope.name == "main")
+        .symbols["x"]
+        .type_name
+        == "int"
+    )
     assert second.all_scopes[-1].name == "main/block1"
 
 

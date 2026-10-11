@@ -1,12 +1,12 @@
 """Shared AST node definitions (owner: Module 2 - Parser).
 
-DRAFT CONTRACT - the Parser, Semantic Analyser and Code Generator owners must agree on
-this file before coding. Types are plain strings: "int", "bool", "string", "void".
+Types are plain strings: "int", "bool", "string", "void".
 
 Every node carries `line` and `column` (keyword-only, default 0).
 Every Expr carries `resolved_type`, which the semantic analyser fills in and the
 code generator reads.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -22,6 +22,7 @@ TYPE_VOID = "void"
 class Node:
     line: int = field(default=0, kw_only=True)
     column: int = field(default=0, kw_only=True)
+    binding_id: Optional[int] = field(default=None, kw_only=True)
 
 
 # ------------------------------------------------------------------ expressions
@@ -42,7 +43,9 @@ class BoolLiteral(Expr):
 
 @dataclass
 class StringLiteral(Expr):
-    value: str  # decoded contents between the quotes (e.g. "\n" is already a newline char)
+    value: (
+        str  # decoded contents between the quotes (e.g. "\n" is already a newline char)
+    )
 
 
 @dataclass

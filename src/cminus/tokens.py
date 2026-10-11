@@ -1,7 +1,5 @@
-"""Shared token definitions. Owner: Module 1 (Hilarie Cipriano).
+"""Shared tokens: named literal/keyword classes and literal punctuation types."""
 
-Replace `type: str` with a TokenType enum once the token list is agreed.
-"""
 from dataclasses import dataclass
 
 

@@ -1,7 +1,8 @@
-"""Shared error hierarchy (DRAFT CONTRACT - agree on this as a team).
+"""Shared error hierarchy for positioned compiler diagnostics.
 
-Every phase raises a subclass of CMinusError. Only main.py catches and prints them.
+Every source phase raises a subclass of CMinusError. CLI boundaries render them.
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -10,7 +11,9 @@ from typing import Optional
 class CMinusError(Exception):
     kind = "error"
 
-    def __init__(self, message: str, line: Optional[int] = None, column: Optional[int] = None):
+    def __init__(
+        self, message: str, line: Optional[int] = None, column: Optional[int] = None
+    ):
         super().__init__(message)
         self.message = message
         self.line = line

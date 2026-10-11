@@ -1,16 +1,10 @@
-"""Pending lexer contracts; token type and EOF conventions remain unspecified."""
+"""lexer contracts; token type and EOF conventions remain unspecified."""
 
 import pytest
 
 from cminus.errors import LexicalError
 from cminus.lexer_analyser import tokenize
 from cminus.tokens import Token
-
-pytestmark = pytest.mark.xfail(
-    raises=NotImplementedError,
-    strict=True,
-    reason="lexer is not implemented yet",
-)
 
 
 def test_tokens_preserve_lexemes_and_one_based_source_locations() -> None:

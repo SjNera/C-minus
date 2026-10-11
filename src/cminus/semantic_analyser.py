@@ -48,6 +48,7 @@ class Symbol:
     params: list[Param] = field(default_factory=list)
     variadic: bool = False
     builtin: bool = False
+    binding_id: int | None = field(default=None, kw_only=True)
 
 
 @dataclass
@@ -74,6 +75,7 @@ class SymbolTable:
     def __init__(self) -> None:
         self.global_scope = Scope("global")
         self.all_scopes: list[Scope] = [self.global_scope]
+        self.bindings: dict[int, Symbol] = {}
 
     def lookup_function(self, name: str) -> Symbol | None:
         """Return a global function signature, or None if absent."""
@@ -103,9 +105,7 @@ class SymbolTable:
         return "\n".join(lines)
 
 
-def _basic_printf_check(
-    fmt: str, arg_types: list[str], line: int, column: int
-) -> None:
+def _basic_printf_check(fmt: str, arg_types: list[str], line: int, column: int) -> None:
     """Check the supported printf specifiers when Module 7 is unavailable."""
     specifiers: list[str] = []
     index = 0
@@ -163,6 +163,8 @@ class SemanticAnalyser:
         self.current_scope = self.symbol_table.global_scope
         self.current_function: FunctionDecl | None = None
         self._scope_count = 0
+        self._visible_functions: set[str] = {"printf"}
+        self._initializing: set[int] = set()
 
     def analyse(self, program: Program) -> SymbolTable:
         """Analyse a program with fresh state, raising the first semantic error."""
@@ -170,6 +172,8 @@ class SemanticAnalyser:
         self.current_scope = self.symbol_table.global_scope
         self.current_function = None
         self._scope_count = 0
+        self._visible_functions = {"printf"}
+        self._initializing = set()
         self.declare(
             Symbol(
                 "printf",
@@ -206,7 +210,7 @@ class SemanticAnalyser:
             raise RuntimeError("cannot pop the global scope")
         self.current_scope = parent
 
-    def declare(self, symbol: Symbol) -> None:
+    def declare(self, symbol: Symbol) -> Symbol:
         """Declare a symbol after checking for a same-scope redeclaration."""
         previous = self.current_scope.symbols.get(symbol.name)
         if previous is not None:
@@ -216,7 +220,10 @@ class SemanticAnalyser:
                 symbol.line,
                 symbol.column,
             )
+        symbol.binding_id = len(self.symbol_table.bindings)
+        self.symbol_table.bindings[symbol.binding_id] = symbol
         self.current_scope.symbols[symbol.name] = symbol
+        return symbol
 
     def lookup(self, name: str) -> Symbol | None:
         """Look up a name with normal lexical shadowing."""
@@ -300,7 +307,7 @@ class SemanticAnalyser:
                 self._check_declaration_type(
                     param.type_name, f"parameter '{param.name}'", param
                 )
-            self.declare(
+            symbol = self.declare(
                 Symbol(
                     function.name,
                     "function",
@@ -310,6 +317,7 @@ class SemanticAnalyser:
                     params=list(function.params),
                 )
             )
+            function.binding_id = symbol.binding_id
 
         main = self.symbol_table.lookup_function("main")
         if main is None:
@@ -321,6 +329,7 @@ class SemanticAnalyser:
                 main.column,
             )
         for function in node.functions:
+            self._visible_functions.add(function.name)
             self.visit(function)
 
     def visit_FunctionDecl(self, node: FunctionDecl) -> None:
@@ -338,14 +347,17 @@ class SemanticAnalyser:
 
     def visit_Param(self, node: Param) -> None:
         """Declare a validated function parameter."""
-        self.declare(Symbol(node.name, "param", node.type_name, node.line, node.column))
+        symbol = self.declare(
+            Symbol(node.name, "param", node.type_name, node.line, node.column)
+        )
+        node.binding_id = symbol.binding_id
 
     def visit_Block(self, node: Block) -> None:
         """Analyse a nested block in a new scope."""
         self._visit_scoped_statement(node, "block")
 
     def visit_VarDecl(self, node: VarDecl) -> None:
-        """Check the initializer before making the variable visible."""
+        """Bind at the declarator, rejecting reads of the binding in its initializer."""
         self._check_declaration_type(node.type_name, f"variable '{node.name}'", node)
         previous = self.current_scope.symbols.get(node.name)
         if previous is not None:
@@ -354,15 +366,22 @@ class SemanticAnalyser:
                 f" (first declared at line {previous.line})",
                 node,
             )
+        symbol = self.declare(
+            Symbol(node.name, "var", node.type_name, node.line, node.column)
+        )
+        node.binding_id = symbol.binding_id
         if node.init is not None:
-            value_type = self._expression_type(node.init)
+            self._initializing.add(symbol.binding_id)
+            try:
+                value_type = self._expression_type(node.init)
+            finally:
+                self._initializing.remove(symbol.binding_id)
             if not _is_assignable(node.type_name, value_type):
                 self._error(
                     f"cannot assign '{value_type}' to variable '{node.name}'"
                     f" of type '{node.type_name}'",
                     node.init,
                 )
-        self.declare(Symbol(node.name, "var", node.type_name, node.line, node.column))
 
     def visit_ExprStmt(self, node: ExprStmt) -> None:
         """Allow a standalone void call whose result is discarded."""
@@ -422,18 +441,27 @@ class SemanticAnalyser:
                 node.value,
             )
 
-    def visit_Identifier(self, node: Identifier) -> str:
-        """Resolve a variable or parameter through the enclosing scopes."""
+    def _variable_binding(self, node: Identifier) -> Symbol:
         symbol = self.lookup(node.name)
         if symbol is None:
             self._error(f"variable '{node.name}' is used before it is declared", node)
         if symbol.kind == "function":
             self._error(f"function '{node.name}' cannot be used as a variable", node)
+        node.binding_id = symbol.binding_id
+        return symbol
+
+    def visit_Identifier(self, node: Identifier) -> str:
+        """Resolve a variable or parameter through the enclosing scopes."""
+        symbol = self._variable_binding(node)
+        if symbol.binding_id in self._initializing:
+            self._error(f"variable '{node.name}' is read in its own initializer", node)
         return self._resolve(node, symbol.type_name)
 
     def visit_Assign(self, node: Assign) -> str:
         """Check an assignment and annotate its target as well as its value."""
-        target_type = self._expression_type(node.target)
+        symbol = self._variable_binding(node.target)
+        node.binding_id = symbol.binding_id
+        target_type = self._resolve(node.target, symbol.type_name)
         value_type = self._expression_type(node.value)
         if not _is_assignable(target_type, value_type):
             self._error(
@@ -483,6 +511,11 @@ class SemanticAnalyser:
                 f" of type '{symbol.type_name}'",
                 node,
             )
+        if node.callee not in self._visible_functions:
+            self._error(
+                f"function '{node.callee}' must be defined before it is called", node
+            )
+        node.binding_id = symbol.binding_id
         if symbol.builtin and node.callee == "printf":
             return self._visit_printf(node)
         if len(node.args) != len(symbol.params):

@@ -1,0 +1,44 @@
+name: Compiler tests
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.14']
+    env:
+      CMINUS_CC: gcc
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Require GNU GCC
+        run: |
+          gcc --version
+          gcc -v 2>&1 | grep -q 'gcc version'
+      - name: Install compiler and test tools
+        run: python -m pip install -e . 'pytest>=8.0'
+      - name: Run all tests with no skips or expected failures
+        run: |
+          python -m pytest -q --junitxml=results.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('results.xml').getroot()
+          assert all(int(suite.get('skipped', '0')) == 0 for suite in root.iter('testsuite'))
+          PY
+      - name: Check examples against GNU GCC
+        run: |
+          cminus-check examples/hello.c
+          cminus-check examples/factorial.c
+          cminus-check tests/gcc_cases/formatting.c
+      - name: Execute generated code independently
+        run: |
+          cminus examples/hello.c -o /tmp/cminus-hello.py
+          cd /tmp
+          python -I -S /tmp/cminus-hello.py

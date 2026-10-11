@@ -1,0 +1,243 @@
+{
+  "verified_at_utc": "2026-10-10T07:22:02.098627+00:00",
+  "platform": "Darwin arm64",
+  "generator_python": "3.14.8",
+  "minimum_runtime_python": "Python 3.10.22",
+  "reference_standard": "c11",
+  "reference_options": [
+    "-Wall",
+    "-Wextra",
+    "-Werror=implicit-function-declaration",
+    "-O0"
+  ],
+  "suites": [
+    {
+      "tests": 440,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "python": "3.10.22",
+      "seconds": 7.436
+    },
+    {
+      "tests": 440,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "python": "3.14.8",
+      "seconds": 6.911
+    }
+  ],
+  "cases": [
+    {
+      "source": "tests/gcc_cases/arithmetic.c",
+      "c": {
+        "stdout_hex": "2d32202d3120312032203731353832373838320a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_14": {
+        "stdout_hex": "2d32202d3120312032203731353832373838320a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_10": {
+        "stdout_hex": "2d32202d3120312032203731353832373838320a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "equivalent": true
+    },
+    {
+      "source": "tests/gcc_cases/bindings.c",
+      "c": {
+        "stdout_hex": "3230203130203520390a3120310a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_14": {
+        "stdout_hex": "3230203130203520390a3120310a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_10": {
+        "stdout_hex": "3230203130203520390a3120310a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "equivalent": true
+    },
+    {
+      "source": "tests/gcc_cases/byte_output.c",
+      "c": {
+        "stdout_hex": "ff6869656e64",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_14": {
+        "stdout_hex": "ff6869656e64",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_10": {
+        "stdout_hex": "ff6869656e64",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "equivalent": true
+    },
+    {
+      "source": "tests/gcc_cases/control_flow.c",
+      "c": {
+        "stdout_hex": "333120393920350a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_14": {
+        "stdout_hex": "333120393920350a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_10": {
+        "stdout_hex": "333120393920350a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "equivalent": true
+    },
+    {
+      "source": "tests/gcc_cases/empty.c",
+      "c": {
+        "stdout_hex": "",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_14": {
+        "stdout_hex": "",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_10": {
+        "stdout_hex": "",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "equivalent": true
+    },
+    {
+      "source": "tests/gcc_cases/formatting.c",
+      "c": {
+        "stdout_hex": "2531202d33206f6b20410a636f756e743d31317c7461696c",
+        "stderr_hex": "",
+        "exit_status": 7
+      },
+      "python_3_14": {
+        "stdout_hex": "2531202d33206f6b20410a636f756e743d31317c7461696c",
+        "stderr_hex": "",
+        "exit_status": 7
+      },
+      "python_3_10": {
+        "stdout_hex": "2531202d33206f6b20410a636f756e743d31317c7461696c",
+        "stderr_hex": "",
+        "exit_status": 7
+      },
+      "equivalent": true
+    },
+    {
+      "source": "tests/gcc_cases/functions.c",
+      "c": {
+        "stdout_hex": "463d31323020626f6f6c3d350a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_14": {
+        "stdout_hex": "463d31323020626f6f6c3d350a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_10": {
+        "stdout_hex": "463d31323020626f6f6c3d350a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "equivalent": true
+    },
+    {
+      "source": "tests/gcc_cases/loop_conditions.c",
+      "c": {
+        "stdout_hex": "3031323332313031323320330a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_14": {
+        "stdout_hex": "3031323332313031323320330a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_10": {
+        "stdout_hex": "3031323332313031323320330a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "equivalent": true
+    },
+    {
+      "source": "tests/gcc_cases/short_circuit.c",
+      "c": {
+        "stdout_hex": "30323a312031203020340a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_14": {
+        "stdout_hex": "30323a312031203020340a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_10": {
+        "stdout_hex": "30323a312031203020340a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "equivalent": true
+    },
+    {
+      "source": "examples/hello.c",
+      "c": {
+        "stdout_hex": "48656c6c6f2c20432d4d696e7573210a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_14": {
+        "stdout_hex": "48656c6c6f2c20432d4d696e7573210a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_10": {
+        "stdout_hex": "48656c6c6f2c20432d4d696e7573210a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "equivalent": true
+    },
+    {
+      "source": "examples/factorial.c",
+      "c": {
+        "stdout_hex": "3121203d20310a3221203d20320a3321203d20360a3421203d2032340a3521203d203132300a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_14": {
+        "stdout_hex": "3121203d20310a3221203d20320a3321203d20360a3421203d2032340a3521203d203132300a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "python_3_10": {
+        "stdout_hex": "3121203d20310a3221203d20320a3321203d20360a3421203d2032340a3521203d203132300a",
+        "stderr_hex": "",
+        "exit_status": 0
+      },
+      "equivalent": true
+    }
+  ],
+  "compiler": "gcc-16 (Homebrew GCC 16.2.0) 16.2.0"
+}

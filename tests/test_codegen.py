@@ -1,4 +1,4 @@
-"""Pending checks that supported ASTs produce executable Python."""
+"""checks that supported ASTs produce executable Python."""
 
 import subprocess
 import sys
@@ -28,12 +28,6 @@ from cminus.ast_nodes import (
 )
 from cminus.code_generator import generate
 from cminus.semantic_analyser import analyse
-
-pytestmark = pytest.mark.xfail(
-    raises=NotImplementedError,
-    strict=True,
-    reason="code generator is not implemented yet",
-)
 
 
 def run_generated_program(
@@ -123,7 +117,7 @@ def test_nested_loops_assignments_and_boolean_conditions_compile(
     assert result.stdout == result.stderr == ""
 
 
-def test_forward_function_calls_and_recursion_compile(tmp_path: Path) -> None:
+def test_helper_calls_and_recursion_compile(tmp_path: Path) -> None:
     factorial = FunctionDecl(
         "int",
         "factorial",
@@ -157,6 +151,6 @@ def test_forward_function_calls_and_recursion_compile(tmp_path: Path) -> None:
             ]
         ),
     )
-    result = run_generated_program(Program([main, factorial]), tmp_path)
+    result = run_generated_program(Program([factorial, main]), tmp_path)
     assert result.returncode == 0, result.stderr
     assert result.stdout == result.stderr == ""

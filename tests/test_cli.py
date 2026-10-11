@@ -44,7 +44,7 @@ def test_help_lists_available_options(capsys: pytest.CaptureFixture[str]) -> Non
     assert output.err == ""
 
 
-@pytest.mark.parametrize("argv", [["--unknown"], ["input.c"]])
+@pytest.mark.parametrize("argv", [["--unknown"]])
 def test_unsupported_arguments_report_usage_on_stderr(
     argv: list[str],
     capsys: pytest.CaptureFixture[str],
