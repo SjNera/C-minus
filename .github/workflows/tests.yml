@@ -38,6 +38,7 @@ jobs:
           cminus-check examples/factorial.c
           cminus-check examples/loop_control.c
           cminus-check examples/globals_and_recursion.c
+          cminus-check examples/pointers.c
           cminus-check tests/gcc_cases/formatting.c
       - name: Execute generated code independently
         run: |

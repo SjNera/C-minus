@@ -13,24 +13,34 @@ import tempfile
 import cminus
 
 PROGRAM = """#include <stdio.h>
+#include <stdbool.h>
 int calls;
 int add(int);
+void update(int *, bool *);
 int main(void) {
     int total = 0;
+    bool ready = false;
+    int *pointer = &total;
+    bool *flag = &ready;
     for (int i = 0; i < 6; i = i + 1) {
         if (i == 1) continue;
         if (i == 4) break;
         total = add(i);
     }
-    printf("total=%03d calls=%d café\\n", total, calls);
+    update(pointer, flag);
+    printf("total=%03d calls=%d ready=%d café\\n", total, calls, ready);
     return 7;
 }
 int add(int value) {
     calls = calls + 1;
     return value + 10;
 }
+void update(int *value, bool *flag) {
+    *value = *value + 1;
+    *flag = true;
+}
 """
-EXPECTED = "total=013 calls=3 café\n".encode("utf-8")
+EXPECTED = "total=014 calls=3 ready=1 café\n".encode("utf-8")
 
 
 def run(command, directory):
@@ -70,7 +80,10 @@ def main():
     checker = scripts / ("cminus-check" + suffix)
 
     with tempfile.TemporaryDirectory(prefix="cminus-install-") as directory:
-        for name, executable in [("cminus", compiler), ("cminus-check", checker)]:
+        for name, executable in [
+            ("cminus", compiler),
+            ("cminus-check", checker),
+        ]:
             check_result(
                 run([executable, "--version"], directory),
                 f"{name} {installed.version}\n".encode(),
@@ -79,7 +92,9 @@ def main():
             assert help_result.returncode == 0 and not help_result.stderr
             assert f"usage: {name}".encode() in help_result.stdout
         check_result(
-            run([sys.executable, "-I", "-m", "cminus", "--version"], directory),
+            run(
+                [sys.executable, "-I", "-m", "cminus", "--version"], directory
+            ),
             f"cminus {installed.version}\n".encode(),
         )
         source = Path(directory) / "program with spaces.c"
@@ -95,11 +110,18 @@ def main():
             EXPECTED,
             status=7,
         )
+        output = generated.read_text(encoding="utf-8")
+        assert "class Reference:" in output and "__cm" not in output
+        assert "parse_printf_format" not in output
         comparison = run([checker, source, "--cc", args.cc], directory)
         assert comparison.returncode == 0 and not comparison.stderr, comparison
-        assert b"Equivalent: stdout, stderr, exit status (7)" in comparison.stdout
+        assert (
+            b"Equivalent: stdout, stderr, exit status (7)" in comparison.stdout
+        )
         invalid = Path(directory) / "invalid.c"
-        invalid.write_text("int main(void) { return missing; }", encoding="utf-8")
+        invalid.write_text(
+            "int main(void) { return missing; }", encoding="utf-8"
+        )
         error = run([compiler, invalid], directory)
         assert error.returncode == 1 and not error.stdout, error
         assert b"semantic error" in error.stderr and b"^" in error.stderr

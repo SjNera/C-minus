@@ -46,20 +46,20 @@ A wheel can be copied to another computer without the repository. After building
 the distribution, install it with:
 
 ```sh
-pipx install dist/cminus-0.1.0-py3-none-any.whl
+pipx install dist/cminus-0.2.0-py3-none-any.whl
 pipx ensurepath
 ```
 
 Use the actual filename for future versions. Dependencies are downloaded unless
 they are available locally. A source distribution such as
-`dist/cminus-0.1.0.tar.gz` can also be passed to `pipx install`.
+`dist/cminus-0.2.0.tar.gz` can also be passed to `pipx install`.
 
 To install with pip inside a virtual environment instead:
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install dist/cminus-0.1.0-py3-none-any.whl
+python -m pip install dist/cminus-0.2.0-py3-none-any.whl
 cminus --help
 ```
 
@@ -103,12 +103,13 @@ Verify a fresh installation with an interpreter that has installed the wheel:
 
 ```sh
 python3 -m venv /tmp/cminus-install
-/tmp/cminus-install/bin/python -m pip install dist/cminus-0.1.0-py3-none-any.whl
+/tmp/cminus-install/bin/python -m pip install dist/cminus-0.2.0-py3-none-any.whl
 /tmp/cminus-install/bin/python tools/check_installation.py --cc gcc
 ```
 
 The check rejects editable installs, verifies both commands and their versions,
-translates a program with globals/prototypes and loop jumps, runs the generated
+translates a program with globals/prototypes, loop jumps, and int/bool pointers,
+checks readable generated names and helper selection, runs the generated
 program independently with `-I -S`, checks positioned errors, and compares with
 C11. Execution happens in a temporary directory outside the source checkout.
 CI builds and verifies a clean wheel installation on Python 3.10 and 3.14.

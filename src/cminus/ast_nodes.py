@@ -1,6 +1,6 @@
 """Shared AST node definitions (owner: Module 2 - Parser).
 
-Types are plain strings: "int", "bool", "string", "void".
+Types are plain strings: "int", "bool", "int*", "bool*", "string", "void".
 
 Every node carries `line` and `column` (keyword-only, default 0).
 Every Expr carries `resolved_type`, which the semantic analyser fills in and the
@@ -43,9 +43,7 @@ class BoolLiteral(Expr):
 
 @dataclass
 class StringLiteral(Expr):
-    value: (
-        str  # decoded contents between the quotes (e.g. "\n" is already a newline char)
-    )
+    value: str  # decoded contents between the quotes
 
 
 @dataclass
@@ -55,7 +53,7 @@ class Identifier(Expr):
 
 @dataclass
 class Assign(Expr):
-    target: Identifier
+    target: Expr  # identifier or unary dereference
     value: Expr
 
 
@@ -68,7 +66,7 @@ class BinaryOp(Expr):
 
 @dataclass
 class UnaryOp(Expr):
-    op: str  # ! -
+    op: str  # ! - & *
     operand: Expr
 
 
@@ -172,8 +170,14 @@ class Program(Node):
 
     @property
     def functions(self) -> list[FunctionDecl]:
-        return [node for node in self.declarations if isinstance(node, FunctionDecl)]
+        return [
+            node
+            for node in self.declarations
+            if isinstance(node, FunctionDecl)
+        ]
 
     @property
     def globals(self) -> list[VarDecl]:
-        return [node for node in self.declarations if isinstance(node, VarDecl)]
+        return [
+            node for node in self.declarations if isinstance(node, VarDecl)
+        ]

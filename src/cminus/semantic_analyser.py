@@ -38,6 +38,7 @@ from cminus.ast_nodes import (
 )
 from cminus.errors import SemanticError
 from cminus.runtime import c_int_div, c_int_mod
+from cminus.types import is_numeric as _is_numeric, is_pointer, is_scalar
 
 
 @dataclass
@@ -56,6 +57,8 @@ class Symbol:
     is_global: bool = field(default=False, kw_only=True)
     defined: bool = field(default=False, kw_only=True)
     initial_value: int | bool | None = field(default=None, kw_only=True)
+    address_taken: bool = field(default=False, kw_only=True)
+    initial_target: int | None = field(default=None, kw_only=True)
 
 
 @dataclass
@@ -87,7 +90,11 @@ class SymbolTable:
     def lookup_function(self, name: str) -> Symbol | None:
         """Return a global function signature, or None if absent."""
         symbol = self.global_scope.symbols.get(name)
-        return symbol if symbol is not None and symbol.kind == "function" else None
+        return (
+            symbol
+            if symbol is not None and symbol.kind == "function"
+            else None
+        )
 
     def dump(self) -> str:
         """Render declarations deterministically for --dump-symbols."""
@@ -107,13 +114,19 @@ class SymbolTable:
                         f" -> {symbol.type_name}"
                     )
                 else:
-                    declaration = f"{symbol.kind} {symbol.name}: {symbol.type_name}"
-                location = "builtin" if symbol.builtin else f"line {symbol.line}"
+                    declaration = (
+                        f"{symbol.kind} {symbol.name}: {symbol.type_name}"
+                    )
+                location = (
+                    "builtin" if symbol.builtin else f"line {symbol.line}"
+                )
                 lines.append(f"  {declaration}   [{location}]")
         return "\n".join(lines)
 
 
-def _basic_printf_check(fmt: str, arg_types: list[str], line: int, column: int) -> None:
+def _basic_printf_check(
+    fmt: str, arg_types: list[str], line: int, column: int
+) -> None:
     """Check the supported printf specifiers when Module 7 is unavailable."""
     specifiers: list[str] = []
     index = 0
@@ -123,14 +136,18 @@ def _basic_printf_check(fmt: str, arg_types: list[str], line: int, column: int) 
             continue
         index += 1
         if index == len(fmt):
-            raise SemanticError("incomplete printf format specifier '%'", line, column)
+            raise SemanticError(
+                "incomplete printf format specifier '%'", line, column
+            )
         specifier = fmt[index]
         index += 1
         if specifier == "%":
             continue
         if specifier not in ("d", "i", "c", "s"):
             raise SemanticError(
-                f"unsupported printf format specifier '%{specifier}'", line, column
+                f"unsupported printf format specifier '%{specifier}'",
+                line,
+                column,
             )
         specifiers.append(specifier)
 
@@ -142,7 +159,11 @@ def _basic_printf_check(fmt: str, arg_types: list[str], line: int, column: int) 
             column,
         )
     for specifier, type_name in zip(specifiers, arg_types):
-        valid = type_name == TYPE_STRING if specifier == "s" else _is_numeric(type_name)
+        valid = (
+            type_name == TYPE_STRING
+            if specifier == "s"
+            else _is_numeric(type_name)
+        )
         if not valid:
             expected = "'string'" if specifier == "s" else "int or bool"
             raise SemanticError(
@@ -153,14 +174,18 @@ def _basic_printf_check(fmt: str, arg_types: list[str], line: int, column: int) 
             )
 
 
-def _is_numeric(type_name: str) -> bool:
-    """Recognize types that participate in C-style numeric conversions."""
-    return type_name in (TYPE_INT, TYPE_BOOL)
-
-
 def _is_assignable(target_type: str, value_type: str) -> bool:
-    """Allow conversion between int and bool only."""
+    """Keep pointer targets exact and preserve C's boolean conversions."""
+    if target_type == TYPE_BOOL:
+        return is_scalar(value_type)
+    if is_pointer(target_type):
+        return target_type == value_type
     return _is_numeric(target_type) and _is_numeric(value_type)
+
+
+def is_null_constant(node: Expr) -> bool:
+    """The literal zero is the supported null-pointer spelling."""
+    return isinstance(node, IntLiteral) and node.value == 0
 
 
 class SemanticAnalyser:
@@ -206,7 +231,9 @@ class SemanticAnalyser:
         """Dispatch to the visitor for the concrete AST node class."""
         visitor = getattr(self, f"visit_{type(node).__name__}", None)
         if visitor is None:
-            self._error(f"unsupported syntax node '{type(node).__name__}'", node)
+            self._error(
+                f"unsupported syntax node '{type(node).__name__}'", node
+            )
         return visitor(node)
 
     def push_scope(self, name: str) -> Scope:
@@ -267,16 +294,19 @@ class SemanticAnalyser:
         return type_name
 
     def _check_condition(self, condition: Expr) -> None:
-        """Require a numeric condition."""
+        """Require a scalar condition, including a pointer's null/non-null test."""
         type_name = self._expression_type(condition)
-        if not _is_numeric(type_name):
+        if not is_scalar(type_name):
             self._error(
-                f"condition must be int or bool, found '{type_name}'", condition
+                f"condition must be int or bool, found '{type_name}'",
+                condition,
             )
 
-    def _check_declaration_type(self, type_name: str, kind: str, node: Node) -> None:
-        """Limit variables and parameters to int and bool."""
-        if not _is_numeric(type_name):
+    def _check_declaration_type(
+        self, type_name: str, kind: str, node: Node
+    ) -> None:
+        """Limit storage to numeric values and their first-level pointers."""
+        if not is_scalar(type_name):
             self._error(f"{kind} cannot have type '{type_name}'", node)
 
     def _visit_statements(self, block: Block) -> None:
@@ -287,7 +317,9 @@ class SemanticAnalyser:
     def _push_child_scope(self, label: str) -> None:
         """Give nested scopes stable, unique names."""
         self._scope_count += 1
-        self.push_scope(f"{self.current_scope.name}/{label}{self._scope_count}")
+        self.push_scope(
+            f"{self.current_scope.name}/{label}{self._scope_count}"
+        )
 
     def _visit_scoped_statement(self, statement: Stmt, label: str) -> None:
         """Give a nested block or loop body exactly one child scope."""
@@ -315,7 +347,9 @@ class SemanticAnalyser:
                 self._declare_function(declaration)
             elif isinstance(declaration, VarDecl):
                 self._check_declaration_type(
-                    declaration.type_name, f"variable '{declaration.name}'", declaration
+                    declaration.type_name,
+                    f"variable '{declaration.name}'",
+                    declaration,
                 )
                 symbol = self.declare(
                     Symbol(
@@ -349,7 +383,9 @@ class SemanticAnalyser:
                 if isinstance(declaration, FunctionDecl):
                     self.visit(declaration)
 
-    def _declare_function(self, node: FunctionDecl | FunctionPrototype) -> None:
+    def _declare_function(
+        self, node: FunctionDecl | FunctionPrototype
+    ) -> None:
         if node.return_type not in (TYPE_INT, TYPE_BOOL, TYPE_VOID):
             self._error(
                 f"function '{node.name}' has invalid return type '{node.return_type}'",
@@ -378,7 +414,11 @@ class SemanticAnalyser:
                     node,
                 )
             if previous.builtin or (definition and previous.defined):
-                first = "a built-in" if previous.builtin else f"line {previous.line}"
+                first = (
+                    "a built-in"
+                    if previous.builtin
+                    else f"line {previous.line}"
+                )
                 self._error(
                     f"duplicate function '{node.name}' (first declared at {first})",
                     node,
@@ -408,6 +448,27 @@ class SemanticAnalyser:
 
     def _analyse_global(self, node: VarDecl) -> None:
         symbol = self.symbol_table.bindings[node.binding_id]
+        if is_pointer(node.type_name):
+            if node.init is None:
+                return
+            self._check_initializer(node, symbol)
+            if is_null_constant(node.init):
+                return
+            if (
+                isinstance(node.init, UnaryOp)
+                and node.init.op == "&"
+                and isinstance(node.init.operand, Identifier)
+            ):
+                target = self.symbol_table.bindings[
+                    node.init.operand.binding_id
+                ]
+                if target.is_global:
+                    symbol.initial_target = target.binding_id
+                    return
+            self._error(
+                "global pointer initializer must be a global address or 0",
+                node.init,
+            )
         value = 0
         if node.init is not None:
             self._check_initializer(node, symbol)
@@ -427,7 +488,9 @@ class SemanticAnalyser:
             self._check_constant_expression(node.left)
             self._check_constant_expression(node.right)
             return
-        self._error("global initializer must be an integer constant expression", node)
+        self._error(
+            "global initializer must be an integer constant expression", node
+        )
 
     def _constant_value(self, node: Expr) -> int:
         if isinstance(node, (IntLiteral, BoolLiteral)):
@@ -489,7 +552,9 @@ class SemanticAnalyser:
 
     def visit_VarDecl(self, node: VarDecl) -> None:
         """Bind at the declarator, rejecting reads of the binding in its initializer."""
-        self._check_declaration_type(node.type_name, f"variable '{node.name}'", node)
+        self._check_declaration_type(
+            node.type_name, f"variable '{node.name}'", node
+        )
         previous = self.current_scope.symbols.get(node.name)
         if previous is not None:
             self._error(
@@ -510,12 +575,19 @@ class SemanticAnalyser:
                 value_type = self._expression_type(node.init)
             finally:
                 self._initializing.remove(symbol.binding_id)
-            if not _is_assignable(node.type_name, value_type):
+            if not self._assignable(node.type_name, value_type, node.init):
                 self._error(
                     f"cannot assign '{value_type}' to variable '{node.name}'"
                     f" of type '{node.type_name}'",
                     node.init,
                 )
+
+    def _assignable(
+        self, target_type: str, value_type: str, value: Expr
+    ) -> bool:
+        return _is_assignable(target_type, value_type) or (
+            is_pointer(target_type) and is_null_constant(value)
+        )
 
     def visit_ExprStmt(self, node: ExprStmt) -> None:
         """Allow a standalone void call whose result is discarded."""
@@ -568,15 +640,17 @@ class SemanticAnalyser:
         if function.return_type == TYPE_VOID:
             if node.value is not None:
                 self._error(
-                    f"void function '{function.name}' should not return a value", node
+                    f"void function '{function.name}' should not return a value",
+                    node,
                 )
             return
         if node.value is None:
             self._error(
-                f"non-void function '{function.name}' must return a value", node
+                f"non-void function '{function.name}' must return a value",
+                node,
             )
         value_type = self._expression_type(node.value)
-        if not _is_assignable(function.return_type, value_type):
+        if not self._assignable(function.return_type, value_type, node.value):
             self._error(
                 f"function '{function.name}' cannot return '{value_type}'"
                 f" as '{function.return_type}'",
@@ -586,11 +660,17 @@ class SemanticAnalyser:
     def _variable_binding(self, node: Identifier) -> Symbol:
         symbol = self.lookup(node.name)
         if symbol is None:
-            self._error(f"variable '{node.name}' is used before it is declared", node)
+            self._error(
+                f"variable '{node.name}' is used before it is declared", node
+            )
         if symbol.kind == "function":
-            self._error(f"function '{node.name}' cannot be used as a variable", node)
+            self._error(
+                f"function '{node.name}' cannot be used as a variable", node
+            )
         if symbol.is_global and symbol.binding_id not in self._visible_globals:
-            self._error(f"variable '{node.name}' is used before it is declared", node)
+            self._error(
+                f"variable '{node.name}' is used before it is declared", node
+            )
         node.binding_id = symbol.binding_id
         return symbol
 
@@ -598,18 +678,30 @@ class SemanticAnalyser:
         """Resolve a variable or parameter through the enclosing scopes."""
         symbol = self._variable_binding(node)
         if symbol.binding_id in self._initializing:
-            self._error(f"variable '{node.name}' is read in its own initializer", node)
+            self._error(
+                f"variable '{node.name}' is read in its own initializer", node
+            )
         return self._resolve(node, symbol.type_name)
 
     def visit_Assign(self, node: Assign) -> str:
         """Check an assignment and annotate its target as well as its value."""
-        symbol = self._variable_binding(node.target)
-        node.binding_id = symbol.binding_id
-        target_type = self._resolve(node.target, symbol.type_name)
-        value_type = self._expression_type(node.value)
-        if not _is_assignable(target_type, value_type):
+        if isinstance(node.target, Identifier):
+            symbol = self._variable_binding(node.target)
+            node.binding_id = symbol.binding_id
+            target_type = self._resolve(node.target, symbol.type_name)
+            label = f"variable '{node.target.name}'"
+        elif isinstance(node.target, UnaryOp) and node.target.op == "*":
+            target_type = self._expression_type(node.target)
+            label = "dereferenced pointer"
+        else:
             self._error(
-                f"cannot assign '{value_type}' to variable '{node.target.name}'"
+                "assignment target must be a variable or dereference",
+                node.target,
+            )
+        value_type = self._expression_type(node.value)
+        if not self._assignable(target_type, value_type, node.value):
+            self._error(
+                f"cannot assign '{value_type}' to {label}"
                 f" of type '{target_type}'",
                 node,
             )
@@ -625,6 +717,19 @@ class SemanticAnalyser:
             result_type = TYPE_BOOL
         else:
             self._error(f"unsupported binary operator '{node.op}'", node)
+        if (
+            node.op in {"&&", "||"}
+            and is_scalar(left_type)
+            and is_scalar(right_type)
+        ):
+            return self._resolve(node, result_type)
+        if node.op in {"==", "!="} and (
+            is_pointer(left_type)
+            and (left_type == right_type or is_null_constant(node.right))
+            or is_pointer(right_type)
+            and is_null_constant(node.left)
+        ):
+            return self._resolve(node, result_type)
         if not (_is_numeric(left_type) and _is_numeric(right_type)):
             self._error(
                 f"operator '{node.op}' cannot be applied to"
@@ -634,13 +739,40 @@ class SemanticAnalyser:
         return self._resolve(node, result_type)
 
     def visit_UnaryOp(self, node: UnaryOp) -> str:
-        """Type logical negation and arithmetic negation."""
+        """Check addressable storage, dereferences, and numeric unary operators."""
+        if node.op == "&":
+            if isinstance(node.operand, Identifier):
+                symbol = self._variable_binding(node.operand)
+                self._resolve(node.operand, symbol.type_name)
+                if not _is_numeric(symbol.type_name):
+                    self._error(
+                        "address-of requires an int or bool variable; pointer-to-pointer is excluded",
+                        node,
+                    )
+                symbol.address_taken = True
+                return self._resolve(node, symbol.type_name + "*")
+            if isinstance(node.operand, UnaryOp) and node.operand.op == "*":
+                value_type = self._expression_type(node.operand)
+                return self._resolve(node, value_type + "*")
+            self._error("address-of requires a variable or dereference", node)
         operand_type = self._expression_type(node.operand, allow_void=True)
+        if node.op == "*":
+            if not is_pointer(operand_type):
+                self._error(
+                    f"dereference requires int* or bool*, found '{operand_type}'",
+                    node,
+                )
+            return self._resolve(node, operand_type[:-1])
         if node.op not in ("!", "-"):
             self._error(f"unsupported unary operator '{node.op}'", node)
-        if not _is_numeric(operand_type):
+        if not (
+            _is_numeric(operand_type)
+            or node.op == "!"
+            and is_pointer(operand_type)
+        ):
             self._error(
-                f"operator '{node.op}' cannot be applied to '{operand_type}'", node
+                f"operator '{node.op}' cannot be applied to '{operand_type}'",
+                node,
             )
         return self._resolve(node, TYPE_BOOL if node.op == "!" else TYPE_INT)
 
@@ -657,10 +789,13 @@ class SemanticAnalyser:
             )
         if node.callee not in self._visible_functions:
             self._error(
-                f"function '{node.callee}' must be declared before it is called", node
+                f"function '{node.callee}' must be declared before it is called",
+                node,
             )
         if not symbol.defined:
-            self._error(f"function '{node.callee}' is declared but not defined", node)
+            self._error(
+                f"function '{node.callee}' is declared but not defined", node
+            )
         node.binding_id = symbol.binding_id
         if symbol.builtin and node.callee == "printf":
             return self._visit_printf(node)
@@ -670,9 +805,11 @@ class SemanticAnalyser:
                 f" but {len(node.args)} were given",
                 node,
             )
-        for index, (arg, param) in enumerate(zip(node.args, symbol.params), start=1):
+        for index, (arg, param) in enumerate(
+            zip(node.args, symbol.params), start=1
+        ):
             arg_type = self._expression_type(arg)
-            if not _is_assignable(param.type_name, arg_type):
+            if not self._assignable(param.type_name, arg_type, arg):
                 self._error(
                     f"function '{node.callee}' argument {index} expects type"
                     f" '{param.type_name}', found '{arg_type}'",
@@ -684,11 +821,14 @@ class SemanticAnalyser:
         """Validate printf with Module 7's helper, or the private fallback."""
         if not node.args:
             self._error(
-                "function 'printf' expects at least 1 argument but 0 were given", node
+                "function 'printf' expects at least 1 argument but 0 were given",
+                node,
             )
         fmt = node.args[0]
         if not isinstance(fmt, StringLiteral):
-            self._error("first argument to 'printf' must be a string literal", fmt)
+            self._error(
+                "first argument to 'printf' must be a string literal", fmt
+            )
         self._expression_type(fmt)
         arg_types = [self._expression_type(arg) for arg in node.args[1:]]
         try:

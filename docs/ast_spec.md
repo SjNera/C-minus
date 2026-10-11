@@ -6,7 +6,7 @@ analyser, and generator all use these dataclasses; they do not define private AS
 Every `Node` has keyword-only `line`, `column`, and `binding_id` metadata. Source
 positions are one-based; manually constructed test nodes may default to zero.
 Every `Expr` also has keyword-only `resolved_type`, initially `None`. Types are
-the strings `int`, `bool`, `string`, and `void`.
+the strings `int`, `bool`, `int*`, `bool*`, `string`, and `void`.
 
 | Node | Structural fields |
 | --- | --- |
@@ -25,7 +25,7 @@ the strings `int`, `bool`, `string`, and `void`.
 | `Break`, `Continue` | no structural fields; inherited source metadata |
 | `IntLiteral`, `BoolLiteral`, `StringLiteral` | `value` |
 | `Identifier` | `name` |
-| `Assign` | identifier `target`, `value` |
+| `Assign` | identifier or dereference `target`, `value` |
 | `BinaryOp` | `op`, `left`, `right` |
 | `UnaryOp` | `op`, `operand` |
 | `Call` | `callee`, `args` |
@@ -64,11 +64,23 @@ Symbols include declaration kind, type, location, and function parameters.
 Function symbols record `defined`; compatible prototypes and their definition
 share one binding. Variable symbols record `is_global`; global `initial_value`
 contains the normalized constant or zero default used in code generation.
+An addressable numeric symbol records `address_taken`; global pointer symbols
+use `initial_target` to record a referenced global binding, or `None` for null.
+`UnaryOp('&', ...)` and `UnaryOp('*', ...)` represent addressing/dereferencing;
+the semantic pass checks the pointee type and annotates each expression.
 Scopes retain parent links and declarations in creation order. Parameters and
 the outer function block share a scope; nested blocks and loops add child scopes.
 The global scope holds functions, builtin `printf`, and global variables.
 Predeclaring symbols supports signature checks and mutual recursion, while
 source-order visibility checks still reject uses before a declaration.
+
+`python_names.readable_names()` maps binding IDs to ordinary Python names.
+Separate functions can reuse parameter names; bindings that shadow another
+within one function receive short suffixes. Python keywords and helper collisions
+are renamed. Address-taken numeric bindings become `Reference` storage; pointer
+bindings hold those objects directly. Dereference assignments remain ordinary
+Python attribute assignments. A small `set_value` helper handles assignments
+whose value is consumed by a surrounding expression.
 
 All source phases raise subclasses of `CMinusError`. CLI boundaries render the
 diagnostic; compiler modules do not print it. Introspection uses deterministic

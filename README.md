@@ -44,6 +44,7 @@ python -I -S /tmp/hello.py
 cminus examples/factorial.c --run
 cminus examples/loop_control.c --run
 cminus examples/globals_and_recursion.c --run
+cminus examples/pointers.c --run
 cminus examples/factorial.c --dump-tokens --dump-ast --dump-symbols --verbose-passes -o /tmp/factorial.py
 cminus-check examples/factorial.c --cc gcc --timeout 10
 ```
@@ -76,11 +77,13 @@ executable installed by Homebrew when verifying with GNU GCC.
 | --- | --- |
 | Values | Decimal `int`, `bool`, and UTF-8 string literals |
 | Variables | Global and local declarations, initialization, assignment, block shadowing |
+| Pointers | `int*` and `bool*`, `&`, dereferencing, shared updates and typed function parameters |
 | Expressions | Arithmetic, comparisons, `!`, short-circuit `&&` / `||`, nested calls |
 | Control flow | `if` / `else`, `while`, `do-while`, `for`, `break`, `continue`, `return` |
 | Functions | Typed parameters, prototypes, forward calls, direct and mutual recursion |
 | Output | Literal-format `printf`: `%d`, `%i`, `%c`, `%s`, `%%`, widths and precision |
 | Formatting | Automatic Black formatting at 79 columns, with AST equivalence checks |
+| Readability | Original names where possible, direct assignments, simple `print`/f-strings, compact reference storage |
 | Teaching tools | Tokens, typed AST, scoped symbol tables, pass tracing |
 | Verification | Standalone golden cases and exact C11 execution comparisons |
 
@@ -88,13 +91,23 @@ Functions must be declared before calls: either a definition or a matching
 prototype suffices. Used functions must have a definition in the same program.
 Returns may be `int`, `bool`, or `void`; an `int main()` or `int main(void)`
 definition is required. Global numeric variables default to zero, or accept a
-constant numeric initializer. Includes are virtual whitelisted `<stdio.h>` and
-`<stdbool.h>` directives, placed before top-level declarations.
+constant numeric initializer. Global pointers default to null, or accept the
+address of an earlier global numeric variable. Includes are virtual whitelisted
+`<stdio.h>` and `<stdbool.h>` directives, placed before top-level declarations.
 
 `printf` validates format arguments at compile time. Numeric conversions accept
 `-`, `+`, space, and `0` flags, widths, and precision; `%s` accepts width and
 precision, and `%c` accepts width. Dynamic `*` fields consume numeric arguments.
 Output preserves UTF-8 bytes, NUL termination, and the C byte-count return value.
+Common formats become Python `print` calls and f-strings. Calls whose return value
+is used retain a small output helper. Complex formats use a pre-parsed format;
+generated programs do not include a runtime format parser.
+
+Pointers refer to shared `Reference` objects. Taking `&count` preserves the same
+object; `*pointer` becomes `pointer.value`. Updating either alias changes the
+same value. Ordinary variables keep direct Python assignments; storage is boxed
+only when its address is used. See [pointer scope and translation](docs/pointers.md)
+and the runnable [generated example](examples/generated/pointers.py).
 
 `break` and `continue` target the innermost enclosing loop. A `for` continuation
 runs its step expression, and a `do-while` continuation tests its condition.
@@ -103,14 +116,16 @@ Both keywords receive a semantic diagnostic when used outside a loop.
 The required CLI features from the study are implemented for this defined subset.
 The [requirements audit](docs/requirements.md) maps them to implementation and
 verification evidence. Strings remain literals; string variables and parameters
-and a GUI are optional extensions. Pointers, memory allocation, arrays,
-user-defined structures, floating point, bitwise operations, arbitrary
+and a GUI are optional extensions. Pointer arithmetic, multiple pointer levels,
+pointer returns, function/void pointers, raw-address output, memory allocation,
+arrays, user-defined structures, floating point, bitwise operations, arbitrary
 preprocessing, and system APIs are excluded. Unsupported source receives a
 positioned diagnostic.
 
 Equivalence is verified for defined, terminating C executions: integer results
 must fit the reference C `int`, divisors must be nonzero, variables must be
 initialized before reads, and expressions must avoid unsequenced side effects.
+Pointers must refer to live variables when dereferenced.
 There is no general definite-assignment or all-path return analysis. Non-void
 helpers must return a value on paths used by the program. Python integers do not
 emulate signed C overflow.

@@ -2,10 +2,6 @@
 
 import sys
 
-# =====================================================================
-# ROLE 1: C-Behavior Emulation Runtime Library
-# =====================================================================
-
 
 def parse_printf_format(format_str):
     """Return literal text and supported conversion specifications."""
@@ -35,7 +31,9 @@ def parse_printf_format(format_str):
             index += 1
         else:
             start = index
-            while index < len(format_str) and format_str[index] in "0123456789":
+            while (
+                index < len(format_str) and format_str[index] in "0123456789"
+            ):
                 index += 1
             if index > start:
                 width = int(format_str[start:index])
@@ -47,7 +45,10 @@ def parse_printf_format(format_str):
                 index += 1
             else:
                 start = index
-                while index < len(format_str) and format_str[index] in "0123456789":
+                while (
+                    index < len(format_str)
+                    and format_str[index] in "0123456789"
+                ):
                     index += 1
                 precision = int(format_str[start:index] or "0")
         if index == len(format_str):
@@ -55,7 +56,9 @@ def parse_printf_format(format_str):
         conversion = format_str[index]
         index += 1
         if conversion not in {"d", "i", "c", "s"}:
-            raise ValueError(f"unsupported printf format specifier '%{conversion}'")
+            raise ValueError(
+                f"unsupported printf format specifier '%{conversion}'"
+            )
         if conversion in {"c", "s"} and any(flag != "-" for flag in flags):
             raise ValueError(f"invalid printf flags for '%{conversion}'")
         if conversion == "c" and precision is not None:
@@ -74,6 +77,11 @@ def c_printf(format_str, *args):
         sys.stdout.buffer.write(output)
         sys.stdout.flush()
         return len(output)
+    return c_printf_parts(parts, *args)
+
+
+def c_printf_parts(parts, *args):
+    """Write a format already parsed by the compiler; return its byte count."""
     output = bytearray()
     argument = 0
     for part in parts:
@@ -115,10 +123,33 @@ def c_printf(format_str, *args):
             if precision is not None:
                 formatted = formatted[:precision]
         padding = b" " * max(0, width - len(formatted))
-        output.extend(formatted + padding if "-" in flags else padding + formatted)
+        output.extend(
+            formatted + padding if "-" in flags else padding + formatted
+        )
     sys.stdout.buffer.write(output)
     sys.stdout.flush()
     return len(output)
+
+
+def write_text(text):
+    """Write exact UTF-8 output and return the number of bytes written."""
+    data = text.encode("utf-8")
+    sys.stdout.buffer.write(data)
+    sys.stdout.flush()
+    return len(data)
+
+
+class Reference:
+    """Shared storage for an int or bool whose address is used."""
+
+    def __init__(self, value):
+        self.value = value
+
+
+def set_value(reference, value):
+    """Preserve the result of a C assignment used inside another expression."""
+    reference.value = value
+    return value
 
 
 def c_scanf(format_str, *pointers):
@@ -168,11 +199,6 @@ class Pointer:
         return self.val
 
 
-# =====================================================================
-# ROLE 2: GCC Equivalence & Output Testing Environment
-# =====================================================================
-
-
 def run_gcc_comparison(c_file_path, generated_py_file_path, test_input=""):
     """
     Compiles and executes the original C file with GCC, runs the transpiled
@@ -181,6 +207,13 @@ def run_gcc_comparison(c_file_path, generated_py_file_path, test_input=""):
     from cminus.extras.gcc_equivalence import compare_files
 
     result = compare_files(
-        c_file_path, generated_py_file_path, stdin=test_input.encode(), isolated=False
+        c_file_path,
+        generated_py_file_path,
+        stdin=test_input.encode(),
+        isolated=False,
     )
-    return result.equivalent, result.c.stdout.decode(), result.python.stdout.decode()
+    return (
+        result.equivalent,
+        result.c.stdout.decode(),
+        result.python.stdout.decode(),
+    )

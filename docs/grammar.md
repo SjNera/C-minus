@@ -11,13 +11,14 @@ function      = return_type, identifier, "(", [ parameters ], ")", block ;
 prototype     = return_type, identifier, "(", [ proto_params ], ")", ";" ;
 return_type   = type | "void" ;
 type          = "int" | "bool" ;
+object_type   = type, [ "*" ] ;
 parameters    = "void" | parameter, { ",", parameter } ;
-parameter     = type, identifier ;
+parameter     = object_type, identifier ;
 proto_params  = "void" | proto_param, { ",", proto_param } ;
-proto_param   = type, [ identifier ] ;
+proto_param   = object_type, [ identifier ] ;
 
 block         = "{", { declaration | statement }, "}" ;
-declaration   = type, identifier, [ "=", expression ], ";" ;
+declaration   = object_type, identifier, [ "=", expression ], ";" ;
 statement     = block
               | ";"
               | expression, ";"
@@ -38,7 +39,7 @@ equality      = comparison, { ("==" | "!="), comparison } ;
 comparison    = additive, { ("<" | "<=" | ">" | ">="), additive } ;
 additive      = product, { ("+" | "-"), product } ;
 product       = unary, { ("*" | "/" | "%"), unary } ;
-unary         = ("-" | "!"), unary | primary ;
+unary         = ("-" | "!" | "&" | "*"), unary | primary ;
 primary       = integer | boolean | string
               | identifier, [ "(", [ arguments ], ")" ]
               | "(", expression, ")" ;
@@ -67,7 +68,7 @@ a trailing line comment or a single same-line block comment. Whitespace around
 
 The parser uses recursive descent and precedence levels, without rewriting
 source text. Binary operators associate left; assignment associates right. An
-assignment's left side must resolve syntactically to an identifier. An `else`
+assignment's left side must be an identifier or unary dereference. An `else`
 binds to the nearest unmatched `if`; `else if` uses an `If` inside the else branch.
 Declarations are block items or `for` initializers, never an unbraced branch body.
 An empty statement is represented by an empty `Block`.
@@ -75,19 +76,30 @@ An empty statement is represented by an empty `Block`.
 ## Semantic rules
 
 - Exactly one `main` definition must return `int` and take no parameters.
-- Variables and parameters have type `int` or `bool`; function returns may also
-  be `void`. Int/bool conversions apply at declarations, assignments, calls, and
-  returns. Conditions require int/bool. Strings are literals used for output.
+- Variables and parameters have type `int`, `bool`, `int*`, or `bool*`;
+  function returns are `int`, `bool`, or `void`. Int/bool conversions apply at
+  declarations, assignments, calls, and returns. Conditions accept numeric or
+  pointer values. Strings are literals used for output.
+- `&variable` takes the address of an int/bool variable; `*pointer` reads or
+  updates the referenced variable. Pointer assignments and arguments require
+  the same pointed-to type, or the integer literal `0` for a null pointer.
+  Matching pointers support `==` and `!=`, including comparison with `0`.
+  `&*pointer` preserves the pointer without reading its referenced value.
+  Pointer arithmetic, ordering, returns, multiple indirection, and void or
+  function pointers are excluded. See [the pointer scope](pointers.md).
 - A function body shares a scope with its parameters. Nested blocks and `for`
   headers introduce scopes. A declaration becomes visible at its declarator;
   reads of that binding in its own initializer are rejected, including shadowing
-  an outer declaration with the same name. Assignment targets are checked as
-  writes. General definite-assignment analysis is deferred.
+  an outer declaration with the same name. Taking its address is permitted.
+  Assignment targets are checked as writes. General definite-assignment analysis
+  is deferred.
 - Names cannot be redeclared within one scope; nested shadowing is allowed.
   Calls resolve the nearest binding, so a local variable can hide a function.
-- Global variables have numeric constant initializers, using literals and the
-  supported unary/binary operators. Uninitialized globals start at zero or
-  false. Identifiers, assignments, and calls are not constant initializers.
+- Numeric globals have constant initializers, using literals and the supported
+  unary/binary operators. Uninitialized globals start at zero or false; global
+  pointers start null. A global pointer initializer is `0` or the address of an
+  earlier global int/bool variable. Identifiers, assignments, and calls are not
+  numeric constant initializers.
   Constant evaluation preserves short-circuit behavior and diagnoses evaluated
   division by zero. Global variables must be declared before a function that
   refers to them. Local declarations may shadow them.
@@ -145,12 +157,18 @@ condition before another iteration. These rules follow the
 The generator tracks a loop stack and emits the necessary continuation operation
 before Python's `continue`; nested jumps use only the nearest loop's operation.
 
-Every source binding receives a stable ID used to rename Python identifiers.
-This preserves C block shadowing and avoids collisions with Python keywords,
-builtins, and generated helpers. Global writes produce Python `global`
-declarations for their resolved bindings; local shadowing remains separate.
-Only required runtime helpers are embedded.
-`printf` writes bytes without an implicit newline and returns the byte count;
+Every source binding receives a stable semantic ID. Generated Python retains
+the C name when possible, adding a suffix only for shadowing, reserved names,
+or long identifiers. Variables whose address is taken use a small `Reference`
+object; direct accesses and dereferencing use its `.value` attribute. Pointer
+variables share these objects. Global writes produce Python `global`
+declarations when the binding itself changes; shared-object updates need none.
+
+Ordinary assignments use `name = value`; conversions appear only when a type
+changes. Common `printf` statements become `print()` and f-strings. Cases that
+need a byte-count return use a small writer, while advanced formats use a byte
+formatter with the format parsed at compile time. Only required helpers are
+embedded. Output preserves UTF-8 bytes, explicit newlines, and the byte count;
 `%c` converts its integer to one byte, and `%s` stops at the first NUL.
 
 The final pass formats Python for the Python 3.10 target at 79 columns, following
@@ -161,4 +179,5 @@ result parses and compiles before the CLI writes an output file.
 
 Behavioral comparisons cover defined C executions within the reference compiler's
 signed-int range. Overflow, division by zero, uninitialized reads, unsequenced
-side effects, and non-void helper fallthrough are outside the verified domain.
+side effects, null/dangling pointer access, and non-void helper fallthrough are
+outside the verified domain.

@@ -80,7 +80,7 @@ def test_exact_c11_equivalence(filename, stdout, status, tmp_path):
 @pytest.mark.parametrize(
     "source",
     [
-        "int main() { int *p; }",
+        "int main() { int **p; }",
         "int main() { int a[3]; }",
         "int main() { float f = 1.5; }",
         "int main() { string s; }",

@@ -122,11 +122,15 @@ def tokenize(source: str) -> list[Token]:
             continue
         if char == "#":
             if source[source.rfind("\n", 0, index) + 1 : index].strip():
-                raise LexicalError("an include must start a source line", line, column)
+                raise LexicalError(
+                    "an include must start a source line", line, column
+                )
             match = _INCLUDE.match(source, index)
             if match is None:
                 raise LexicalError(
-                    "only virtual standard-header includes are supported", line, column
+                    "only virtual standard-header includes are supported",
+                    line,
+                    column,
                 )
             if match.group(1) not in {"stdio.h", "stdbool.h"}:
                 raise LexicalError(
@@ -203,15 +207,19 @@ def tokenize(source: str) -> list[Token]:
             advance()
             kind = "STRING"
         elif pair in _UNSUPPORTED:
-            raise LexicalError(f"operator '{pair}' is outside the core", line, column)
+            raise LexicalError(
+                f"operator '{pair}' is outside the core", line, column
+            )
         elif pair in _DOUBLE:
             advance(2)
             kind = pair
-        elif char in "+-*/%<>=!(){};,":
+        elif char in "+-*/%<>=!&(){};,":
             advance()
             kind = char
         else:
             raise LexicalError(f"unsupported character '{char}'", line, column)
-        tokens.append(Token(kind, source[start:index], start_line, start_column))
+        tokens.append(
+            Token(kind, source[start:index], start_line, start_column)
+        )
     tokens.append(Token("EOF", "", line, column))
     return tokens

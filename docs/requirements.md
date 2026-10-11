@@ -12,30 +12,35 @@ its verification applies to supported programs with defined C behavior.
 | Scoped symbol tables and semantic checks | Global, function, block and loop scopes; declaration, type, signature and return checks | `tests/test_semantic.py`, symbol inspection |
 | Integer, boolean and string literals | Numeric arithmetic/conversions and UTF-8 literal output | `arithmetic.c`, `byte_output.c`, `utf8_strings.c` |
 | Global and local variables | Constant or zero global initialization, shared writes, unique bindings for shadowing | `globals.c`, `global_constants.c`, `bindings.c` |
+| Added int/bool pointer scope | Typed declarations, address-of, dereferencing, indirect updates, aliases, null values, and pointer parameters | `tests/test_pointers_and_readability.py`, five pointer fixtures, [pointer guide](pointers.md) |
 | Expressions and evaluation behavior | C integer division/remainder, numeric logical results, short-circuiting, nested calls and assignment expressions | `arithmetic.c`, `short_circuit.c`, `functions.c` |
 | Branches and loops | `if`, `else if`, `else`, `while`, `do-while`, and `for` | `control_flow.c`, `loop_conditions.c` |
 | Break, continue and return | Innermost loop jumps, correct continuation step/guard, typed returns | `tests/test_loop_jumps.py`, three loop-jump fixtures |
 | Functions and signature validation | Typed parameters, numeric/void returns, matching prototypes, forward calls and direct/mutual recursion | `prototypes.c`, `functions.c`, `tests/test_remaining_features.py` |
 | Executable Python generation | Python AST construction, embedded helpers, binding-aware global declarations | Standalone runs with `-I -S` under Python 3.10 and 3.14 |
 | Format-string output | Compile-time format/type checks; `%d`, `%i`, `%s`, `%c`, `%%`, flags, width and precision | `formatting.c`, `printf_fields.c`, `utf8_strings.c` |
-| Readable Python formatting | Black pass at 79 columns, exact AST comparison, syntax validation | pycodestyle checks for all 21 valid fixtures/examples; long-literal tests |
+| Readable Python formatting | Original names where safe, ordinary assignments, selective conversions, print/f-strings, small reference helper; Black at 79 columns | pycodestyle checks for all 27 valid fixtures/examples; AST equivalence, idempotence, readability tests |
 | Informative errors and introspection | Filename, line, column, source caret; token/AST/symbol dumps and five-pass tracing | `tests/test_core_cli.py`, `tests/test_remaining_features.py` |
 | GCC-equivalence testing | Compile original C11 with explicit UTF-8 encodings; compare stdout bytes, stderr bytes and exit status | [Verification record](verification.md), GNU GCC tests and CI configuration |
-| Practical teaching demonstration | Installed CLI, reusable API, four examples, phase walkthrough | [Walkthrough](walkthrough.md), `tests/test_examples.py` |
+| Practical teaching demonstration | Installed CLI, reusable API, five examples, phase walkthrough | [Walkthrough](walkthrough.md), `tests/test_examples.py` |
 
 The implementation retains the agreed CLI workflow and literal-only strings.
 A GUI and a custom string-variable type were optional extensions, rather than
-requirements of the supplied subset. Pointer-backed C strings, arrays, memory
-allocation, structs/unions/enums/typedefs, floating point, bitwise operations,
+requirements of the supplied subset. The requested extension adds pointers to
+int/bool variables. Pointer arithmetic, multiple indirection, pointer returns,
+void/function pointers, pointer-backed C strings, arrays, memory allocation,
+structs/unions/enums/typedefs, floating point, bitwise operations,
 arbitrary preprocessing, low-level APIs, and native or bytecode targets remain
 excluded as documented in the project scope.
 
 Function prototypes use fixed parameter lists: `()` and `(void)` both mean no
-parameters here. Global initializers must be numeric constant expressions.
+parameters here. Numeric globals use constant expressions; global pointers use
+the address of an earlier global or literal `0`.
 General definite-assignment and all-path return analysis are not implemented;
 verification uses initialized reads and returning paths in non-void helpers.
-Signed integer overflow and unsequenced side effects are outside the verified
-domain. These boundaries prevent the subset from implying full ISO C support.
+Signed integer overflow, unsequenced side effects, null dereferencing, and access
+after a pointed-to variable's lifetime are outside the verified domain. These
+boundaries prevent the subset from implying full ISO C support.
 
 The tests demonstrate behavioral preservation for the supported cases. They do
 not quantify migration time savings or student learning outcomes; those claims

@@ -48,6 +48,20 @@ class Parser:
             self.error(f"expected '{lexeme}', found {found}")
         return self.take()
 
+    def declarator_type(self, type_token: Token) -> str:
+        """Recognize one pointer level while leaving multiplication to expressions."""
+        if not self.match("*"):
+            return type_token.lexeme
+        if type_token.lexeme == "void":
+            self.error(
+                "void pointers are outside the supported subset", type_token
+            )
+        if self.current.lexeme == "*":
+            self.error(
+                "multiple pointer levels are outside the supported subset"
+            )
+        return type_token.lexeme + "*"
+
     def identifier(self) -> Token:
         if self.current.type != "IDENTIFIER":
             self.error("expected an identifier")
@@ -66,13 +80,18 @@ class Parser:
         first = self.current
         includes = []
         while self.current.type == "INCLUDE":
-            includes.append(self.take().lexeme.split("<", 1)[1].split(">", 1)[0])
+            includes.append(
+                self.take().lexeme.split("<", 1)[1].split(">", 1)[0]
+            )
         declarations = []
         while self.current.type != "EOF":
             return_type = self.type_name(allow_void=True)
+            declared_type = self.declarator_type(return_type)
             name = self.identifier()
             if self.current.lexeme != "(":
-                declarations.append(self.finish_declaration(return_type, name))
+                declarations.append(
+                    self.finish_declaration(declared_type, name)
+                )
                 continue
             self.take()
             params = []
@@ -82,12 +101,19 @@ class Parser:
             elif self.current.lexeme != ")":
                 while True:
                     type_token = self.type_name()
-                    param = self.take() if self.current.type == "IDENTIFIER" else None
+                    param_type = self.declarator_type(type_token)
+                    param = (
+                        self.take()
+                        if self.current.type == "IDENTIFIER"
+                        else None
+                    )
                     params.append(
                         nodes.Param(
-                            type_token.lexeme,
+                            param_type,
                             "" if param is None else param.lexeme,
-                            **self.location(type_token if param is None else param),
+                            **self.location(
+                                type_token if param is None else param
+                            ),
                         )
                     )
                     if not self.match(","):
@@ -96,7 +122,10 @@ class Parser:
             if self.match(";"):
                 declarations.append(
                     nodes.FunctionPrototype(
-                        return_type.lexeme, name.lexeme, params, **self.location(name)
+                        declared_type,
+                        name.lexeme,
+                        params,
+                        **self.location(name),
                     )
                 )
                 continue
@@ -110,7 +139,11 @@ class Parser:
             body = self.block()
             declarations.append(
                 nodes.FunctionDecl(
-                    return_type.lexeme, name.lexeme, params, body, **self.location(name)
+                    declared_type,
+                    name.lexeme,
+                    params,
+                    body,
+                    **self.location(name),
                 )
             )
         return nodes.Program(declarations, includes, **self.location(first))
@@ -127,14 +160,15 @@ class Parser:
 
     def declaration(self) -> nodes.VarDecl:
         type_token = self.type_name()
+        declared_type = self.declarator_type(type_token)
         name = self.identifier()
-        return self.finish_declaration(type_token, name)
+        return self.finish_declaration(declared_type, name)
 
-    def finish_declaration(self, type_token: Token, name: Token) -> nodes.VarDecl:
+    def finish_declaration(self, type_name: str, name: Token) -> nodes.VarDecl:
         init = self.expression() if self.match("=") else None
         self.expect(";")
         return nodes.VarDecl(
-            type_token.lexeme, name.lexeme, init, **self.location(name)
+            type_name, name.lexeme, init, **self.location(name)
         )
 
     def condition(self) -> nodes.Expr:
@@ -180,11 +214,15 @@ class Parser:
                     init_expr, line=init_expr.line, column=init_expr.column
                 )
                 self.expect(";")
-            condition = None if self.current.lexeme == ";" else self.expression()
+            condition = (
+                None if self.current.lexeme == ";" else self.expression()
+            )
             self.expect(";")
             step = None if self.current.lexeme == ")" else self.expression()
             self.expect(")")
-            return nodes.For(init, condition, step, self.statement(), **location)
+            return nodes.For(
+                init, condition, step, self.statement(), **location
+            )
         if self.match("return"):
             value = None if self.current.lexeme == ";" else self.expression()
             self.expect(";")
@@ -205,9 +243,18 @@ class Parser:
         left = self.binary(0)
         if self.current.lexeme == "=":
             operator = self.take()
-            if not isinstance(left, nodes.Identifier):
-                self.error("assignment target must be a variable", operator)
-            return nodes.Assign(left, self.expression(), **self.location(operator))
+            if not (
+                isinstance(left, nodes.Identifier)
+                or isinstance(left, nodes.UnaryOp)
+                and left.op == "*"
+            ):
+                self.error(
+                    "assignment target must be a variable or dereference",
+                    operator,
+                )
+            return nodes.Assign(
+                left, self.expression(), **self.location(operator)
+            )
         return left
 
     _LEVELS = (
@@ -226,12 +273,15 @@ class Parser:
         while self.current.lexeme in self._LEVELS[level]:
             operator = self.take()
             left = nodes.BinaryOp(
-                operator.lexeme, left, self.binary(level + 1), **self.location(operator)
+                operator.lexeme,
+                left,
+                self.binary(level + 1),
+                **self.location(operator),
             )
         return left
 
     def unary(self) -> nodes.Expr:
-        if self.current.lexeme in {"-", "!"}:
+        if self.current.lexeme in {"-", "!", "&", "*"}:
             operator = self.take()
             return nodes.UnaryOp(
                 operator.lexeme, self.unary(), **self.location(operator)
