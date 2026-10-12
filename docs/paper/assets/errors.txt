@@ -1,0 +1,6 @@
+$ cminus examples/errors/undeclared_variable.c
+examples/errors/undeclared_variable.c:3:16: semantic error: variable 'count' is used before it is declared
+    return a + count;
+               ^
+
+Exit status: 1

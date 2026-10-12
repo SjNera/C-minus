@@ -1,0 +1,7 @@
+scope: global
+  function printf(string fmt, ...) -> int   [builtin]
+  function main() -> int   [line 1]
+scope: main
+  var x: int   [line 1]
+scope: main/block1
+  var x: int   [line 1]

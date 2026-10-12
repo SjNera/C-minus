@@ -1,0 +1,21 @@
+$ cminus --help
+usage: cminus [-h] [--version] [-o OUTPUT] [--run] [--dump-tokens]
+              [--dump-ast] [--dump-symbols] [--verbose-passes]
+              [input]
+
+C-Minus: C subset to Python compiler
+
+positional arguments:
+  input                C-Minus source file
+
+options:
+  -h, --help           show this help message and exit
+  --version            show program's version number and exit
+  -o, --output OUTPUT  write standalone Python to this file
+  --run                execute the generated program
+  --dump-tokens        print tokens to stderr
+  --dump-ast           print the typed AST to stderr
+  --dump-symbols       print symbol tables to stderr
+  --verbose-passes     report compiler passes to stderr
+
+Exit status: 0

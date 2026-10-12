@@ -1,0 +1,5 @@
+$ cminus calculator.c --run
+Addition: 15
+Subtraction: 5
+Multiplication: 50
+Division: 2
